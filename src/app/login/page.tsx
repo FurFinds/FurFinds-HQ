@@ -1,15 +1,30 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 
+const DEFAULT_REDIRECT = "/hq/dashboard";
+
+/** Only follow redirectTo if it's a safe, internal HQ path — otherwise fall back to the dashboard. */
+function resolveRedirect(rawRedirect: string | null): string {
+  if (
+    !rawRedirect ||
+    !rawRedirect.startsWith("/") ||
+    rawRedirect.startsWith("//") ||
+    rawRedirect === "/login" ||
+    rawRedirect === "/signup"
+  ) {
+    return DEFAULT_REDIRECT;
+  }
+  return rawRedirect;
+}
+
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,9 +45,10 @@ function LoginForm() {
       return;
     }
 
-    const redirectTo = searchParams.get("redirectTo") || "/hq/dashboard";
-    router.push(redirectTo);
-    router.refresh();
+    // Full page navigation (not router.push) so the server re-evaluates
+    // auth against the freshly-written session cookies on the next request.
+    const redirectTo = resolveRedirect(searchParams.get("redirectTo"));
+    window.location.assign(redirectTo);
   }
 
   return (
