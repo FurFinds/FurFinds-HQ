@@ -22,9 +22,16 @@ export function createClient() {
           cookiesToSet.forEach(({ name, value, options }) =>
             cookieStore.set(name, value, options)
           );
-        } catch {
-          // Called from a Server Component — middleware refreshes the
-          // session instead, so this can be safely ignored.
+        } catch (err) {
+          // next/headers only allows mutating cookies from a Server Action
+          // or Route Handler — calling this from a Server Component throws
+          // by design, and middleware refreshes the session in that case,
+          // so that specific error is expected and safe to ignore. Anything
+          // else (e.g. a genuinely malformed cookie option) is logged so it
+          // doesn't fail completely silently.
+          if (!(err instanceof Error) || !err.message.includes("Cookies can only be modified")) {
+            console.error("Unexpected error setting Supabase auth cookies:", err);
+          }
         }
       },
     },
