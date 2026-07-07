@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/types/database";
+import { getSupabaseServiceRoleKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 /**
  * Service-role client for privileged, server-only operations (e.g.
@@ -9,9 +10,7 @@ import type { Database } from "@/lib/types/database";
  * client bundle.
  */
 export function createAdminClient() {
-  return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  return createSupabaseClient<Database>(getSupabaseUrl(), getSupabaseServiceRoleKey(), {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
