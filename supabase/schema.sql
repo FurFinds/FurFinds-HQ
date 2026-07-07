@@ -288,6 +288,13 @@ drop policy if exists "profiles_update_self" on public.profiles;
 create policy "profiles_update_self" on public.profiles
   for update using (auth.uid() = id);
 
+-- Lets a signed-in user create their own profile row if one doesn't exist
+-- yet (self-heal path in requireProfile() for accounts created outside the
+-- normal signup flow, e.g. directly in the Supabase dashboard).
+drop policy if exists "profiles_insert_self" on public.profiles;
+create policy "profiles_insert_self" on public.profiles
+  for insert with check (auth.uid() = id);
+
 drop policy if exists "staff_read_customers" on public.customers;
 create policy "staff_read_customers" on public.customers
   for select using (auth.uid() is not null);
