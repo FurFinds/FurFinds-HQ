@@ -61,7 +61,13 @@ export async function requireProfile(): Promise<SessionProfile> {
       .single();
 
     if (createError || !createdProfile) {
-      redirect("/login");
+      // Next.js redacts thrown server error messages in production, and a
+      // plain redirect("/login") here would silently send an authenticated
+      // user back to the login page with no visible explanation. Put the
+      // actual failure on the URL instead so it's visible without needing
+      // access to server logs.
+      const detail = createError?.message ?? "Unknown error creating profile.";
+      redirect(`/login?error=profile_setup_failed&detail=${encodeURIComponent(detail)}`);
     }
 
     profile = createdProfile;

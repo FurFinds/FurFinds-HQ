@@ -1,5 +1,14 @@
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import type { HqRole } from "@/lib/types/database";
+
+const VALID_ROLES: HqRole[] = [
+  "admin",
+  "verification_manager",
+  "support",
+  "content_editor",
+  "developer",
+];
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +45,7 @@ export default async function DebugPage() {
   ];
 
   let authState: string;
+  let profileState: string;
   try {
     const supabase = createClient();
     const {
@@ -47,8 +57,50 @@ export default async function DebugPage() {
       : user
         ? `Authenticated as ${user.email} (id: ${user.id})`
         : "No user — request has no valid session";
+
+    if (!user) {
+      profileState = "Skipped — no authenticated user.";
+    } else {
+      const { data: existingProfile, error: selectError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (existingProfile) {
+        profileState = `Found existing row — role: ${existingProfile.role}, email: ${existingProfile.email}`;
+      } else {
+        // Mirrors requireProfile()'s self-heal exactly, so this tells us
+        // definitively whether that code path actually works against this
+        // database, instead of guessing from the outside.
+        const metadataRole = user.user_metadata?.role;
+        const role: HqRole = VALID_ROLES.includes(metadataRole) ? metadataRole : "support";
+
+        const { data: createdProfile, error: createError } = await supabase
+          .from("profiles")
+          .upsert({
+            id: user.id,
+            email: user.email ?? "",
+            full_name: user.user_metadata?.full_name ?? null,
+            role,
+          })
+          .select("*")
+          .single();
+
+        if (createdProfile) {
+          profileState = `No row existed — self-heal insert succeeded (role: ${createdProfile.role}). This should have worked in requireProfile() too.`;
+        } else {
+          profileState = `No row existed — self-heal insert FAILED. select error: ${
+            selectError?.message ?? "none"
+          } (code: ${selectError?.code ?? "n/a"}) | insert error: ${
+            createError?.message ?? "unknown"
+          } (code: ${createError?.code ?? "n/a"}, details: ${createError?.details ?? "n/a"}, hint: ${createError?.hint ?? "n/a"})`;
+        }
+      }
+    }
   } catch (err) {
     authState = `Threw: ${err instanceof Error ? err.message : String(err)}`;
+    profileState = "Skipped — auth check threw before profile check could run.";
   }
 
   return (
@@ -72,6 +124,10 @@ export default async function DebugPage() {
 
       <Section title="Current auth state (server-side, this request)">
         <Row label="Result" value={authState} />
+      </Section>
+
+      <Section title="profiles table check (mirrors requireProfile()'s exact logic)">
+        <Row label="Result" value={profileState} />
       </Section>
 
       <Section title="Cookies visible to the server on this request">
