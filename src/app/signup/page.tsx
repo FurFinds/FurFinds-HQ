@@ -27,22 +27,36 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
-    const res = await fetch("/api/auth/signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullName, email, password, role, accessCode }),
-    });
-    const data = await res.json();
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, password, role, accessCode }),
+      });
 
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong.");
+      let data: { error?: string; user?: unknown } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // Server returned a non-JSON error (e.g. a crash before our route
+        // handler could respond) — fall back to the status text below.
+      }
+
+      if (!res.ok) {
+        setError(data.error ?? `Something went wrong (${res.status} ${res.statusText}).`);
+        setLoading(false);
+        return;
+      }
+
+      setSuccess(true);
       setLoading(false);
-      return;
+      setTimeout(() => router.push("/login"), 1500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not reach the server. Please try again."
+      );
+      setLoading(false);
     }
-
-    setSuccess(true);
-    setLoading(false);
-    setTimeout(() => router.push("/login"), 1500);
   }
 
   if (success) {

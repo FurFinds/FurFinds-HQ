@@ -1,5 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback"];
 
@@ -11,11 +13,16 @@ interface CookieToSet {
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const path = request.nextUrl.pathname;
+  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  // If Supabase env vars are missing/malformed, don't let the whole edge
+  // function crash on every request — fail safe (treat as unauthenticated)
+  // so public pages like /login stay reachable and show a clear error
+  // instead of a blank/broken deployment.
+  let user: User | null = null;
+  try {
+    const supabase = createServerClient(getSupabaseUrl(), getSupabaseAnonKey(), {
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -28,15 +35,13 @@ export async function updateSession(request: NextRequest) {
           );
         },
       },
-    }
-  );
+    });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+  } catch (err) {
+    console.error("Supabase auth check failed in middleware:", err);
+  }
 
   if (!user && !isPublic && path !== "/") {
     const url = request.nextUrl.clone();

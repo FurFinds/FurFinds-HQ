@@ -36,19 +36,24 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      // Full page navigation (not router.push) so the server re-evaluates
+      // auth against the freshly-written session cookies on the next request.
+      const redirectTo = resolveRedirect(searchParams.get("redirectTo"));
+      window.location.assign(redirectTo);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setLoading(false);
-      return;
     }
-
-    // Full page navigation (not router.push) so the server re-evaluates
-    // auth against the freshly-written session cookies on the next request.
-    const redirectTo = resolveRedirect(searchParams.get("redirectTo"));
-    window.location.assign(redirectTo);
   }
 
   return (
