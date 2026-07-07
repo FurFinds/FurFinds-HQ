@@ -3,26 +3,10 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
-
-const DEFAULT_REDIRECT = "/hq/dashboard";
-
-/** Only follow redirectTo if it's a safe, internal HQ path — otherwise fall back to the dashboard. */
-function resolveRedirect(rawRedirect: string | null): string {
-  if (
-    !rawRedirect ||
-    !rawRedirect.startsWith("/") ||
-    rawRedirect.startsWith("//") ||
-    rawRedirect === "/login" ||
-    rawRedirect === "/signup"
-  ) {
-    return DEFAULT_REDIRECT;
-  }
-  return rawRedirect;
-}
+import { signIn } from "./actions";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -37,19 +21,18 @@ function LoginForm() {
     setError(null);
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const result = await signIn({
+        email,
+        password,
+        redirectTo: searchParams.get("redirectTo"),
+      });
 
-      if (error) {
-        setError(error.message);
+      // signIn() redirects server-side on success — Next.js follows that
+      // automatically, so we only ever get a return value back on failure.
+      if (result?.error) {
+        setError(result.error);
         setLoading(false);
-        return;
       }
-
-      // Full page navigation (not router.push) so the server re-evaluates
-      // auth against the freshly-written session cookies on the next request.
-      const redirectTo = resolveRedirect(searchParams.get("redirectTo"));
-      window.location.assign(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
       setLoading(false);
