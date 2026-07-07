@@ -260,6 +260,20 @@ create table if not exists public.site_settings (
 );
 
 -- ---------------------------------------------------------------------------
+-- Base grants
+-- ---------------------------------------------------------------------------
+-- RLS policies only narrow down access a role already has at the SQL grant
+-- level — they don't substitute for it. Fresh Supabase projects normally
+-- provision these automatically, but a table created some other way (e.g.
+-- directly in the Table Editor before this script ran) can end up without
+-- them, which surfaces as "permission denied for table X" (Postgres error
+-- 42501) even once RLS policies exist and look correct.
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+alter default privileges in schema public
+  grant select, insert, update, delete on tables to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
 alter table public.profiles enable row level security;
