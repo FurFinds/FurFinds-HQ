@@ -8,12 +8,21 @@ import { Button } from "@/components/ui/Button";
 import { Input, Label } from "@/components/ui/Input";
 import { signIn } from "./actions";
 
+function initialErrorFromUrl(searchParams: URLSearchParams): string | null {
+  const errorCode = searchParams.get("error");
+  if (errorCode === "profile_setup_failed") {
+    const detail = searchParams.get("detail");
+    return `Signed in, but couldn't set up your HQ profile${detail ? `: ${detail}` : "."} Check that supabase/schema.sql (including RLS policies) has been run against your Supabase project.`;
+  }
+  return null;
+}
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => initialErrorFromUrl(searchParams));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
