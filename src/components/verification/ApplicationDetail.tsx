@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Input";
 import { StatusBadge } from "@/components/ui/Badge";
 import { formatDateTime } from "@/lib/utils";
-import { decideApplication } from "@/app/hq/verification/actions";
+import { decideApplication, runAiAnalysis } from "@/app/hq/verification/actions";
 import type { VerificationApplication } from "@/lib/types/database";
 
 export function ApplicationDetail({
@@ -20,6 +20,22 @@ export function ApplicationDetail({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [pendingDecision, setPendingDecision] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  function handleAnalyze() {
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    startTransition(async () => {
+      try {
+        await runAiAnalysis(application.id);
+      } catch (e) {
+        setAnalyzeError(e instanceof Error ? e.message : "Something went wrong.");
+      } finally {
+        setAnalyzing(false);
+      }
+    });
+  }
 
   const business = application.businesses;
   const isDecided = application.status !== "pending" && application.status !== "needs_info";
@@ -66,10 +82,24 @@ export function ApplicationDetail({
       <div className="mt-5 rounded-lg border border-ff-light-blue/40 bg-ff-pale-blue/50 p-4">
         <div className="mb-2 flex items-center justify-between">
           <h4 className="text-sm font-semibold text-ff-dark-blue">AI Analysis</h4>
-          {application.ai_score != null && (
-            <span className="text-sm font-bold text-ff-dark-blue">{application.ai_score}/100</span>
-          )}
+          <div className="flex items-center gap-2">
+            {application.ai_score != null && (
+              <span className="text-sm font-bold text-ff-dark-blue">{application.ai_score}/100</span>
+            )}
+            {canReview && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={analyzing}
+                onClick={handleAnalyze}
+              >
+                {analyzing ? "Analyzing…" : "Run AI Analysis"}
+              </Button>
+            )}
+          </div>
         </div>
+        {analyzeError && <p className="mb-2 text-xs text-[#b91c1c]">{analyzeError}</p>}
         {application.ai_score != null && (
           <div className="mb-3 h-2 w-full rounded-full bg-white">
             <div

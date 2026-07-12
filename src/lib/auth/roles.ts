@@ -74,6 +74,13 @@ export const DEPARTMENTS: Department[] = [
     icon: "⚙️",
     roles: ["admin", "developer"],
   },
+  {
+    slug: "team",
+    label: "Team & Users",
+    href: "/hq/team",
+    icon: "👥",
+    roles: ["admin"],
+  },
 ];
 
 export function canAccessDepartment(role: HqRole, slug: string): boolean {

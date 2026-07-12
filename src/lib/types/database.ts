@@ -10,8 +10,16 @@ export type BusinessStatus = "pending" | "active" | "suspended" | "rejected";
 export type VerificationStatus = "pending" | "approved" | "rejected" | "needs_info";
 export type TicketStatus = "open" | "pending" | "resolved" | "closed";
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
+export type TicketType = "customer" | "business";
+export type EmailStatus = "queued" | "sent" | "failed";
 export type ContentChannel = "instagram" | "facebook" | "tiktok" | "email" | "blog";
 export type ContentStatus = "draft" | "scheduled" | "published";
+export type BlogCategory =
+  | "Pet-Friendly Travel"
+  | "Business Spotlights"
+  | "Pet Care Tips"
+  | "Industry News";
+export type BlogStatus = "draft" | "published";
 export type ComplianceType = "contract" | "insurance" | "compliance_check";
 export type ComplianceStatus = "valid" | "expiring" | "expired" | "pending";
 export type SubscriptionPlan = "basic" | "pro" | "premium";
@@ -117,11 +125,40 @@ export type SupportTicket = {
   message: string | null;
   status: TicketStatus;
   priority: TicketPriority;
+  type: TicketType;
   assigned_to: string | null;
   customer_name: string | null;
   customer_email: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type EmailLog = {
+  id: string;
+  recipient: string;
+  subject: string;
+  body: string;
+  template: string | null;
+  status: EmailStatus;
+  error: string | null;
+  sent_by: string | null;
+  sent_at: string | null;
+  created_at: string;
+};
+
+export type BlogPost = {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  content: string;
+  featured_image: string | null;
+  category: BlogCategory;
+  author: string;
+  status: BlogStatus;
+  created_by: string | null;
+  created_at: string;
+  published_at: string | null;
 };
 
 export type ContentPost = {
@@ -152,6 +189,19 @@ export type Expense = {
   description: string | null;
   amount_cents: number;
   expense_date: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type CalendarEventType = "social_post" | "meeting" | "deadline" | "other";
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  date: string;
+  time: string | null;
+  description: string | null;
+  type: CalendarEventType;
   created_by: string | null;
   created_at: string;
 };
@@ -198,11 +248,14 @@ export interface Database {
       reviews: Table<Review>;
       subscriptions: Table<Subscription>;
       support_tickets: Table<SupportTicket>;
+      email_log: Table<EmailLog>;
       content_posts: Table<ContentPost>;
+      blog_posts: Table<BlogPost>;
       compliance_records: Table<ComplianceRecord>;
       expenses: Table<Expense>;
       site_settings: Table<SiteSetting>;
       meetings: Table<Meeting>;
+      calendar_events: Table<CalendarEvent>;
       department_alerts: Table<DepartmentAlert>;
     };
     Views: Record<string, never>;

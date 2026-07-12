@@ -63,3 +63,24 @@ export async function decideApplication(
 
   revalidatePath("/hq/verification");
 }
+
+export async function runAiAnalysis(applicationId: string) {
+  const { profile } = await requireProfile();
+
+  if (profile.role !== "admin" && profile.role !== "verification_manager") {
+    throw new Error("You don't have permission to run AI analysis.");
+  }
+
+  const supabase = createClient();
+  const { error } = await supabase.functions.invoke("analyze-application", {
+    body: { applicationId },
+  });
+
+  if (error) {
+    throw new Error(
+      `AI analysis failed: ${error.message}. Make sure the analyze-application Edge Function is deployed and ANTHROPIC_API_KEY is set on the Supabase project.`
+    );
+  }
+
+  revalidatePath("/hq/verification");
+}

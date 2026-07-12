@@ -7,12 +7,13 @@ import { Input, Label, Select, Textarea } from "@/components/ui/Input";
 import { StatusBadge } from "@/components/ui/Badge";
 import { formatDateTime } from "@/lib/utils";
 import { createTicket, updateTicket, type TicketInput } from "@/app/hq/customer-success/actions";
-import type { SupportTicket, TicketPriority, TicketStatus } from "@/lib/types/database";
+import type { Profile, SupportTicket, TicketPriority, TicketStatus, TicketType } from "@/lib/types/database";
 
 const emptyForm: TicketInput = {
   subject: "",
   message: "",
   priority: "medium",
+  type: "customer",
   customer_name: "",
   customer_email: "",
 };
@@ -20,12 +21,15 @@ const emptyForm: TicketInput = {
 export function TicketBoard({
   tickets,
   canManage,
+  assignees = [],
 }: {
   tickets: SupportTicket[];
   canManage: boolean;
+  assignees?: Profile[];
 }) {
   const [status, setStatus] = useState("all");
   const [priority, setPriority] = useState("all");
+  const [type, setType] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<TicketInput>(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -37,9 +41,10 @@ export function TicketBoard({
       tickets.filter((t) => {
         if (status !== "all" && t.status !== status) return false;
         if (priority !== "all" && t.priority !== priority) return false;
+        if (type !== "all" && t.type !== type) return false;
         return true;
       }),
-    [tickets, status, priority]
+    [tickets, status, priority, type]
   );
 
   function update<K extends keyof TicketInput>(key: K, value: TicketInput[K]) {
@@ -78,6 +83,11 @@ export function TicketBoard({
           <option value="medium">Medium</option>
           <option value="low">Low</option>
         </Select>
+        <Select value={type} onChange={(e) => setType(e.target.value)} className="w-36">
+          <option value="all">All types</option>
+          <option value="customer">Customer</option>
+          <option value="business">Business</option>
+        </Select>
         {canManage && (
           <Button className="ml-auto" onClick={() => setModalOpen(true)}>
             + New ticket
@@ -91,8 +101,10 @@ export function TicketBoard({
             <tr>
               <th className="px-4 py-3 font-medium">Ticket</th>
               <th className="px-4 py-3 font-medium">Customer</th>
+              <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Priority</th>
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Assigned</th>
               <th className="px-4 py-3 font-medium">Opened</th>
             </tr>
           </thead>
@@ -106,6 +118,25 @@ export function TicketBoard({
                 <td className="px-4 py-3 text-slate-600">
                   {ticket.customer_name ?? "—"}
                   <p className="text-xs text-slate-400">{ticket.customer_email}</p>
+                </td>
+                <td className="px-4 py-3">
+                  {canManage ? (
+                    <Select
+                      value={ticket.type}
+                      onChange={(e) =>
+                        startTransition(() =>
+                          updateTicket(ticket.id, { type: e.target.value as TicketType })
+                        )
+                      }
+                      disabled={isPending}
+                      className="w-28"
+                    >
+                      <option value="customer">Customer</option>
+                      <option value="business">Business</option>
+                    </Select>
+                  ) : (
+                    <StatusBadge status={ticket.type} />
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {canManage ? (
@@ -149,12 +180,37 @@ export function TicketBoard({
                     <StatusBadge status={ticket.status} />
                   )}
                 </td>
+                <td className="px-4 py-3">
+                  {canManage ? (
+                    <Select
+                      value={ticket.assigned_to ?? ""}
+                      onChange={(e) =>
+                        startTransition(() =>
+                          updateTicket(ticket.id, { assigned_to: e.target.value || null })
+                        )
+                      }
+                      disabled={isPending}
+                      className="w-36"
+                    >
+                      <option value="">Unassigned</option>
+                      {assignees.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.full_name ?? a.email}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <span className="text-slate-500">
+                      {assignees.find((a) => a.id === ticket.assigned_to)?.full_name ?? "Unassigned"}
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-slate-500">{formatDateTime(ticket.created_at)}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                   No tickets match these filters.
                 </td>
               </tr>
@@ -193,18 +249,31 @@ export function TicketBoard({
               />
             </div>
           </div>
-          <div>
-            <Label htmlFor="priority">Priority</Label>
-            <Select
-              id="priority"
-              value={form.priority}
-              onChange={(e) => update("priority", e.target.value as TicketPriority)}
-            >
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </Select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="priority">Priority</Label>
+              <Select
+                id="priority"
+                value={form.priority}
+                onChange={(e) => update("priority", e.target.value as TicketPriority)}
+              >
+                <option value="urgent">Urgent</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="type">Type</Label>
+              <Select
+                id="type"
+                value={form.type}
+                onChange={(e) => update("type", e.target.value as TicketType)}
+              >
+                <option value="customer">Customer</option>
+                <option value="business">Business</option>
+              </Select>
+            </div>
           </div>
           <div>
             <Label htmlFor="message">Message</Label>

@@ -12,10 +12,16 @@ const TOOLS = [
     href: "https://claude.com/claude-code",
   },
   {
-    name: "GitHub",
-    description: "Source control, pull requests, and CI for FurFinds HQ.",
+    name: "GitHub — FurFinds HQ",
+    description: "Source control, pull requests, and CI for this repo.",
     icon: "🐙",
-    href: "https://github.com",
+    href: "https://github.com/furfinds/furfinds-hq",
+  },
+  {
+    name: "GitHub — FurFinds (website)",
+    description: "Source control, pull requests, and CI for the public site.",
+    icon: "🐙",
+    href: "https://github.com/furfinds/furfinds",
   },
   {
     name: "Supabase",

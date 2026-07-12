@@ -1,7 +1,10 @@
 import { requireProfile } from "@/lib/auth/session";
 import { requireDepartmentAccess } from "@/lib/auth/guard";
 import { getSupportTickets } from "@/lib/data/support";
+import { getEmailLog } from "@/lib/data/email";
+import { getAllProfiles } from "@/lib/data/team";
 import { TicketBoard, ReplyTemplates } from "@/components/support/TicketBoard";
+import { EmailComposer } from "@/components/support/EmailComposer";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 
@@ -9,7 +12,11 @@ export default async function CustomerSuccessPage() {
   const { profile } = await requireProfile();
   requireDepartmentAccess(profile, "customer-success");
 
-  const tickets = await getSupportTickets();
+  const [tickets, emailLog, staff] = await Promise.all([
+    getSupportTickets(),
+    getEmailLog(),
+    getAllProfiles(),
+  ]);
   const canManage = profile.role === "admin" || profile.role === "support";
   const open = tickets.filter((t) => t.status === "open" || t.status === "pending");
   const complaints = tickets.filter(
@@ -31,7 +38,7 @@ export default async function CustomerSuccessPage() {
 
       <Card>
         <CardHeader title="Ticket Management" subtitle="All customer support tickets" />
-        <TicketBoard tickets={tickets} canManage={canManage} />
+        <TicketBoard tickets={tickets} canManage={canManage} assignees={staff} />
       </Card>
 
       <Card>
@@ -56,6 +63,11 @@ export default async function CustomerSuccessPage() {
       <Card>
         <CardHeader title="Reply Templates" subtitle="Common responses for faster replies" />
         <ReplyTemplates />
+      </Card>
+
+      <Card>
+        <CardHeader title="Email" subtitle="Compose and send email directly from HQ" />
+        <EmailComposer log={emailLog} />
       </Card>
     </div>
   );

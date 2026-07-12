@@ -133,11 +133,24 @@ create table if not exists public.verification_applications (
   ai_score int check (ai_score between 0 and 100),
   ai_summary text,
   ai_flags jsonb not null default '[]',
+  -- Full payload from the public site's multi-step application wizard
+  -- (category answers, self-assessed tier, service/ESA/breed policy
+  -- answers, referral source, etc.) — feeds the AI verification analysis.
+  application_data jsonb not null default '{}',
+  contract_accepted boolean not null default false,
+  contract_accepted_at timestamptz,
   submitted_at timestamptz not null default now(),
   reviewed_by uuid references public.profiles (id),
   reviewed_at timestamptz,
   review_notes text
 );
+
+-- `create table if not exists` above won't add these columns to a
+-- verification_applications table that already existed before they were
+-- introduced, so add them explicitly too.
+alter table public.verification_applications add column if not exists application_data jsonb not null default '{}';
+alter table public.verification_applications add column if not exists contract_accepted boolean not null default false;
+alter table public.verification_applications add column if not exists contract_accepted_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 -- reviews
@@ -176,11 +189,56 @@ create table if not exists public.support_tickets (
   message text,
   status text not null default 'open' check (status in ('open', 'pending', 'resolved', 'closed')),
   priority text not null default 'medium' check (priority in ('low', 'medium', 'high', 'urgent')),
+  -- Distinguishes a pet-owner inquiry from a business inquiry so Customer
+  -- Success can filter the queue by who's asking.
+  type text not null default 'customer' check (type in ('customer', 'business')),
   assigned_to uuid references public.profiles (id),
   customer_name text,
   customer_email text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+alter table public.support_tickets add column if not exists type text not null default 'customer';
+do $$ begin
+  alter table public.support_tickets add constraint support_tickets_type_check check (type in ('customer', 'business'));
+exception when duplicate_object then null;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- email_log — outbound emails sent from HQ (Customer Success / Marketing)
+-- ---------------------------------------------------------------------------
+create table if not exists public.email_log (
+  id uuid primary key default gen_random_uuid(),
+  recipient text not null,
+  subject text not null,
+  body text not null,
+  template text,
+  status text not null default 'queued' check (status in ('queued', 'sent', 'failed')),
+  error text,
+  sent_by uuid references public.profiles (id),
+  sent_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- blog_posts — long-form articles published to the public site's /blog
+-- ---------------------------------------------------------------------------
+create table if not exists public.blog_posts (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  slug text not null unique,
+  excerpt text,
+  content text not null default '',
+  featured_image text,
+  category text not null default 'Industry News' check (
+    category in ('Pet-Friendly Travel', 'Business Spotlights', 'Pet Care Tips', 'Industry News')
+  ),
+  author text not null default 'FurFinds Editorial',
+  status text not null default 'draft' check (status in ('draft', 'published')),
+  created_by uuid references public.profiles (id),
+  created_at timestamptz not null default now(),
+  published_at timestamptz
 );
 
 -- ---------------------------------------------------------------------------
@@ -225,6 +283,23 @@ create table if not exists public.expenses (
 );
 
 -- ---------------------------------------------------------------------------
+-- calendar_events — full content/ops calendar (Marketing department), more
+-- general than `meetings` (which only backs the Command Center widget).
+-- ---------------------------------------------------------------------------
+create table if not exists public.calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  date date not null,
+  time time,
+  description text,
+  type text not null default 'other' check (type in ('social_post', 'meeting', 'deadline', 'other')),
+  created_by uuid references public.profiles (id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists calendar_events_date_idx on public.calendar_events (date);
+
+-- ---------------------------------------------------------------------------
 -- meetings — Command Center calendar
 -- ---------------------------------------------------------------------------
 create table if not exists public.meetings (
@@ -244,6 +319,37 @@ create table if not exists public.department_alerts (
   message text not null,
   severity text not null default 'info' check (severity in ('info', 'warning', 'critical')),
   resolved boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- leads — contact/inquiry events generated for a business from the public
+-- site (e.g. "Get Directions" / "Call Now" clicks, contact form submits).
+-- Powers the "Leads Generated" metric on the business dashboard.
+-- ---------------------------------------------------------------------------
+create table if not exists public.leads (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid references public.businesses (id) on delete cascade,
+  source text not null default 'website' check (source in ('website', 'search', 'referral')),
+  contact_name text,
+  contact_email text,
+  message text,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- discount_codes — checkout discount codes (applied once Stripe billing is
+-- fully wired up; table exists now so the schema is ready ahead of that).
+-- ---------------------------------------------------------------------------
+create table if not exists public.discount_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  discount_type text not null default 'percentage' check (discount_type in ('percentage', 'fixed')),
+  discount_value numeric(10, 2) not null,
+  valid_from timestamptz not null default now(),
+  valid_until timestamptz,
+  max_uses int,
+  used_count int not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -273,6 +379,16 @@ grant select, insert, update, delete on all tables in schema public to authentic
 alter default privileges in schema public
   grant select, insert, update, delete on tables to authenticated;
 
+-- The public marketing site (FurFinds, not HQ) reads a narrow set of tables
+-- with the anon key: site_settings (founder photo, etc.) and anything else
+-- explicitly granted below as those features are added.
+grant usage on schema public to anon;
+grant select on public.site_settings to anon;
+-- The public site's business verification wizard (apply flow) submits
+-- directly into these tables, often before the applicant has an account.
+grant insert on public.businesses to anon, authenticated;
+grant insert on public.verification_applications to anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security
 -- ---------------------------------------------------------------------------
@@ -290,6 +406,11 @@ alter table public.expenses enable row level security;
 alter table public.meetings enable row level security;
 alter table public.department_alerts enable row level security;
 alter table public.site_settings enable row level security;
+alter table public.leads enable row level security;
+alter table public.discount_codes enable row level security;
+alter table public.blog_posts enable row level security;
+alter table public.email_log enable row level security;
+alter table public.calendar_events enable row level security;
 
 -- Any signed-in HQ staff member (i.e. has a profiles row) can read
 -- operational data. Only admins/relevant department roles can mutate
@@ -345,6 +466,14 @@ create policy "staff_write_businesses" on public.businesses
     public.current_role_name() in ('admin', 'verification_manager')
   );
 
+-- Public site: the business verification wizard creates a new pending
+-- business record before an application exists to attach it to. Insert-only
+-- and restricted to the 'pending' status, so this can't be used to create
+-- (or overwrite) an active/verified listing directly.
+drop policy if exists "public_apply_insert_businesses" on public.businesses;
+create policy "public_apply_insert_businesses" on public.businesses
+  for insert with check (status = 'pending');
+
 drop policy if exists "staff_read_verification" on public.verification_applications;
 create policy "staff_read_verification" on public.verification_applications
   for select using (auth.uid() is not null);
@@ -355,6 +484,15 @@ create policy "staff_write_verification" on public.verification_applications
     public.current_role_name() in ('admin', 'verification_manager')
   ) with check (
     public.current_role_name() in ('admin', 'verification_manager')
+  );
+
+-- Public site: the business verification wizard submits its own
+-- application. Insert-only and restricted to 'pending' with no reviewer
+-- fields set, so applicants can't self-approve or edit past submissions.
+drop policy if exists "public_apply_insert_verification" on public.verification_applications;
+create policy "public_apply_insert_verification" on public.verification_applications
+  for insert with check (
+    status = 'pending' and reviewed_by is null and reviewed_at is null
   );
 
 drop policy if exists "staff_read_reviews" on public.reviews;
@@ -385,6 +523,18 @@ drop policy if exists "staff_write_tickets" on public.support_tickets;
 create policy "staff_write_tickets" on public.support_tickets
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
+drop policy if exists "staff_read_email_log" on public.email_log;
+create policy "staff_read_email_log" on public.email_log
+  for select using (auth.uid() is not null);
+
+drop policy if exists "staff_write_email_log" on public.email_log;
+create policy "staff_write_email_log" on public.email_log
+  for insert with check (auth.uid() is not null);
+
+drop policy if exists "staff_update_email_log" on public.email_log;
+create policy "staff_update_email_log" on public.email_log
+  for update using (auth.uid() is not null);
+
 drop policy if exists "staff_read_content" on public.content_posts;
 create policy "staff_read_content" on public.content_posts
   for select using (auth.uid() is not null);
@@ -396,6 +546,25 @@ create policy "staff_write_content" on public.content_posts
   ) with check (
     public.current_role_name() in ('admin', 'content_editor')
   );
+
+drop policy if exists "staff_read_blog_posts" on public.blog_posts;
+create policy "staff_read_blog_posts" on public.blog_posts
+  for select using (auth.uid() is not null);
+
+drop policy if exists "staff_write_blog_posts" on public.blog_posts;
+create policy "staff_write_blog_posts" on public.blog_posts
+  for all using (
+    public.current_role_name() in ('admin', 'content_editor')
+  ) with check (
+    public.current_role_name() in ('admin', 'content_editor')
+  );
+
+-- Public site: anyone can read published posts for the /blog feed.
+drop policy if exists "public_read_published_blog_posts" on public.blog_posts;
+create policy "public_read_published_blog_posts" on public.blog_posts
+  for select using (status = 'published');
+
+grant select on public.blog_posts to anon;
 
 drop policy if exists "staff_read_compliance" on public.compliance_records;
 create policy "staff_read_compliance" on public.compliance_records
@@ -429,6 +598,14 @@ drop policy if exists "staff_write_meetings" on public.meetings;
 create policy "staff_write_meetings" on public.meetings
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
+drop policy if exists "staff_read_calendar_events" on public.calendar_events;
+create policy "staff_read_calendar_events" on public.calendar_events
+  for select using (auth.uid() is not null);
+
+drop policy if exists "staff_write_calendar_events" on public.calendar_events;
+create policy "staff_write_calendar_events" on public.calendar_events
+  for all using (auth.uid() is not null) with check (auth.uid() is not null);
+
 drop policy if exists "staff_read_alerts" on public.department_alerts;
 create policy "staff_read_alerts" on public.department_alerts
   for select using (auth.uid() is not null);
@@ -437,9 +614,12 @@ drop policy if exists "staff_write_alerts" on public.department_alerts;
 create policy "staff_write_alerts" on public.department_alerts
   for all using (auth.uid() is not null) with check (auth.uid() is not null);
 
+-- site_settings backs public-facing content (e.g. the founder photo shown on
+-- the marketing site), so it needs to be readable by the anon key too, not
+-- just signed-in HQ staff.
 drop policy if exists "staff_read_site_settings" on public.site_settings;
 create policy "staff_read_site_settings" on public.site_settings
-  for select using (auth.uid() is not null);
+  for select using (true);
 
 drop policy if exists "staff_write_site_settings" on public.site_settings;
 create policy "staff_write_site_settings" on public.site_settings
@@ -447,6 +627,74 @@ create policy "staff_write_site_settings" on public.site_settings
     public.current_role_name() in ('admin', 'content_editor')
   ) with check (
     public.current_role_name() in ('admin', 'content_editor')
+  );
+
+-- Leads are readable by any authenticated user (matches the existing
+-- businesses/reviews posture in this schema) and insertable by anyone with
+-- an authenticated session, since the public site's business owners create
+-- them indirectly via contact actions.
+drop policy if exists "staff_read_leads" on public.leads;
+create policy "staff_read_leads" on public.leads
+  for select using (auth.uid() is not null);
+
+drop policy if exists "staff_write_leads" on public.leads;
+create policy "staff_write_leads" on public.leads
+  for insert with check (auth.uid() is not null);
+
+drop policy if exists "staff_read_discount_codes" on public.discount_codes;
+create policy "staff_read_discount_codes" on public.discount_codes
+  for select using (auth.uid() is not null);
+
+drop policy if exists "staff_write_discount_codes" on public.discount_codes;
+create policy "staff_write_discount_codes" on public.discount_codes
+  for all using (
+    public.current_role_name() in ('admin')
+  ) with check (
+    public.current_role_name() in ('admin')
+  );
+
+-- ---------------------------------------------------------------------------
+-- Storage buckets — public, since founder photos, blog images, and avatars
+-- are all displayed on the public website. Uploads are still write-gated by
+-- the policies below (any authenticated HQ user can upload/replace their
+-- own avatar or site content; only the object owner can delete it).
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('site-content', 'site-content', true)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "public_read_site_content" on storage.objects;
+create policy "public_read_site_content" on storage.objects
+  for select using (bucket_id = 'site-content');
+
+drop policy if exists "staff_write_site_content" on storage.objects;
+create policy "staff_write_site_content" on storage.objects
+  for insert with check (bucket_id = 'site-content' and auth.uid() is not null);
+
+drop policy if exists "staff_update_site_content" on storage.objects;
+create policy "staff_update_site_content" on storage.objects
+  for update using (bucket_id = 'site-content' and auth.uid() is not null);
+
+drop policy if exists "public_read_avatars" on storage.objects;
+create policy "public_read_avatars" on storage.objects
+  for select using (bucket_id = 'avatars');
+
+-- Avatar uploads are scoped by path convention: `${user_id}/...`, so a
+-- signed-in user can only write inside their own folder.
+drop policy if exists "user_write_own_avatar" on storage.objects;
+create policy "user_write_own_avatar" on storage.objects
+  for insert with check (
+    bucket_id = 'avatars' and auth.uid() is not null and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "user_update_own_avatar" on storage.objects;
+create policy "user_update_own_avatar" on storage.objects
+  for update using (
+    bucket_id = 'avatars' and auth.uid() is not null and (storage.foldername(name))[1] = auth.uid()::text
   );
 
 -- ---------------------------------------------------------------------------
@@ -490,6 +738,19 @@ select id, 'Jess Rivera', 'jess@pawsplaza.com', 'basic', 'Retail', 'pending', 82
   '["missing_insurance_doc"]', now() - interval '2 days'
 from public.businesses where name = 'Paws Plaza Retail'
 on conflict do nothing;
+
+insert into public.blog_posts (title, slug, excerpt, content, category, author, status, published_at)
+values (
+  'Atlanta''s Best Pet-Friendly Spots: A FurFinds Guide',
+  'atlanta-pet-friendly-guide',
+  'From Piedmont Park''s off-leash trails to patio cafes in the Old Fourth Ward, here''s where Atlanta pet parents can actually trust the "pet-friendly" sign.',
+  E'Atlanta has no shortage of restaurants, parks, and shops that claim to welcome pets — but "pet-friendly" can mean anything from a water bowl by the door to a fully pet-inclusive experience. We went looking for the real thing.\n\nPiedmont Park remains the city''s anchor for dog owners, with a dedicated off-leash dog park (Piedmont Dog Park) split into small- and large-dog sections, plus miles of paved trails that stay busy with pets on leash from sunrise to sunset.\n\nIn the Old Fourth Ward and around the Beltline, patio seating has become the norm rather than the exception. Look for water bowls set out without being asked, staff who know their own pet policy off the top of their head, and clearly posted rules — all signs FurFinds looks for when verifying a business.\n\nFor road trips out of the city, several boutique hotels near Midtown and Buckhead have moved beyond "pets allowed" to genuinely pet-inclusive amenities: in-room beds, no weight limits, and staff trained in pet first aid.\n\nAs FurFinds verifies more Atlanta businesses, this guide will grow. If you know a spot that goes above and beyond for pets, submit it through our business application flow and we''ll take a look.',
+  'Pet-Friendly Travel',
+  'FurFinds Editorial',
+  'published',
+  now()
+)
+on conflict (slug) do nothing;
 
 insert into public.meetings (title, starts_at, department)
 values

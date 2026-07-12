@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
-import type { TicketPriority, TicketStatus } from "@/lib/types/database";
+import type { TicketPriority, TicketStatus, TicketType } from "@/lib/types/database";
 
 function assertCanManage(role: string) {
   if (role !== "admin" && role !== "support") {
@@ -15,6 +15,7 @@ export interface TicketInput {
   subject: string;
   message: string;
   priority: TicketPriority;
+  type: TicketType;
   customer_name: string;
   customer_email: string;
 }
@@ -35,7 +36,12 @@ export async function createTicket(input: TicketInput) {
 
 export async function updateTicket(
   id: string,
-  updates: { status?: TicketStatus; priority?: TicketPriority; assigned_to?: string | null }
+  updates: {
+    status?: TicketStatus;
+    priority?: TicketPriority;
+    type?: TicketType;
+    assigned_to?: string | null;
+  }
 ) {
   const { profile } = await requireProfile();
   assertCanManage(profile.role);
