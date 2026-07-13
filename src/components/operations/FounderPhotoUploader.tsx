@@ -3,14 +3,19 @@
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { updateSiteSetting } from "@/app/hq/operations/actions";
+import { cropToSquareJpeg } from "@/lib/image";
 import { Button } from "@/components/ui/Button";
+import { ROLE_LABELS } from "@/lib/auth/roles";
+import type { HqRole } from "@/lib/types/database";
 
 export function FounderPhotoUploader({
   initialUrl,
   canEdit,
+  role,
 }: {
   initialUrl: string | null;
   canEdit: boolean;
+  role: HqRole;
 }) {
   const [url, setUrl] = useState(initialUrl);
   const [uploading, setUploading] = useState(false);
@@ -25,13 +30,21 @@ export function FounderPhotoUploader({
     setError(null);
 
     try {
+      const cropped = await cropToSquareJpeg(file, 640, 0.85);
       const supabase = createClient();
-      const path = `founder/photo-${Date.now()}.${file.name.split(".").pop()}`;
+      const path = `founder/photo-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("site-content")
-        .upload(path, file, { upsert: true });
+        .upload(path, cropped, { upsert: true, contentType: "image/jpeg" });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        if (uploadError.message.toLowerCase().includes("bucket not found")) {
+          throw new Error(
+            'Storage bucket "site-content" doesn\'t exist yet. Run the latest supabase/schema.sql against your Supabase project (it creates the bucket and its access policies), then try again.'
+          );
+        }
+        throw uploadError;
+      }
 
       const {
         data: { publicUrl },
@@ -60,7 +73,7 @@ export function FounderPhotoUploader({
       <div>
         <p className="text-sm font-medium text-slate-900">Founder photo</p>
         <p className="text-xs text-slate-500">Shown on the public FurFinds site.</p>
-        {canEdit && (
+        {canEdit ? (
           <div className="mt-2">
             <input
               ref={inputRef}
@@ -80,8 +93,12 @@ export function FounderPhotoUploader({
               {uploading ? "Uploading…" : "Upload new photo"}
             </Button>
           </div>
+        ) : (
+          <p className="mt-1 text-xs text-slate-400">
+            Only Admins and Content Editors can update this — your role is {ROLE_LABELS[role]}.
+          </p>
         )}
-        {error && <p className="mt-1 text-xs text-[#b91c1c]">{error}</p>}
+        {error && <p className="mt-1 max-w-sm text-xs text-[#b91c1c]">{error}</p>}
       </div>
     </div>
   );

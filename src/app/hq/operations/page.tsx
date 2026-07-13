@@ -50,6 +50,7 @@ export default async function OperationsPage() {
           <FounderPhotoUploader
             initialUrl={(founderPhoto?.value?.url as string) ?? null}
             canEdit={canEditContent}
+            role={profile.role}
           />
           <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="mb-2 text-sm font-medium text-slate-700">

@@ -59,6 +59,7 @@ export type RevenueSnapshot = {
 
 export type Business = {
   id: string;
+  slug: string | null;
   name: string;
   category: string | null;
   description: string | null;
@@ -90,11 +91,14 @@ export type VerificationApplication = {
   ai_score: number | null;
   ai_summary: string | null;
   ai_flags: string[];
+  application_data: Record<string, unknown>;
+  contract_accepted: boolean;
+  contract_accepted_at: string | null;
   submitted_at: string;
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_notes: string | null;
-  businesses?: Pick<Business, "id" | "name" | "category" | "city" | "state"> | null;
+  businesses?: Pick<Business, "id" | "name" | "category" | "city" | "state" | "website" | "description"> | null;
 };
 
 export type Review = {

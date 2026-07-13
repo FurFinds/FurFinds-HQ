@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
+import { sendViaResend } from "@/lib/email/resend";
 
 export interface SendEmailInput {
   recipient: string;
@@ -38,24 +39,24 @@ export async function sendEmail(input: SendEmailInput) {
 
   if (insertError || !logRow) throw new Error(insertError?.message ?? "Could not queue email.");
 
-  // Delegates the actual send to the `send-email` Edge Function (Resend).
-  // If RESEND_API_KEY isn't configured on the project yet, the function
-  // marks this row "failed" with a clear reason rather than the request
-  // silently doing nothing — see supabase/functions/send-email/index.ts.
-  const { error: invokeError } = await supabase.functions.invoke("send-email", {
-    body: {
-      emailLogId: logRow.id,
-      recipient: input.recipient,
-      subject: input.subject,
-      body: input.body,
-    },
+  const result = await sendViaResend({
+    recipient: input.recipient,
+    subject: input.subject,
+    body: input.body,
   });
+
+  await supabase
+    .from("email_log")
+    .update(
+      result.ok
+        ? { status: "sent", sent_at: new Date().toISOString(), error: null }
+        : { status: "failed", error: result.error }
+    )
+    .eq("id", logRow.id);
 
   revalidatePath("/hq/customer-success");
 
-  if (invokeError) {
-    throw new Error(
-      `Email queued but the send-email function couldn't be reached: ${invokeError.message}`
-    );
+  if (!result.ok) {
+    throw new Error(`Email logged but not sent: ${result.error}`);
   }
 }

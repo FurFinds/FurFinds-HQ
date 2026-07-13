@@ -31,21 +31,30 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
--- Auto-create a profile row whenever a new auth user is created.
+-- Auto-create a profile row whenever a new auth user is created — but ONLY
+-- when the user was provisioned with an explicit, valid HQ role in
+-- `app_metadata`. app_metadata (raw_app_meta_data) can only be set
+-- server-side via the service-role admin API (see /api/auth/signup, which
+-- is gated behind HQ_SIGNUP_CODE) — unlike user_metadata, it is never
+-- settable by the client through a public signUp() call. If this trigger
+-- trusted user_metadata instead, anyone calling supabase.auth.signUp()
+-- directly (e.g. the public FurFinds website sharing this Supabase
+-- project, or a raw API request) could set `data: { role: 'admin' }` and
+-- grant themselves HQ access. Deny-by-default: a signup with no valid
+-- app_metadata role gets no HQ profile at all, not a 'support' default.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  requested_role text := new.raw_app_meta_data ->> 'role';
 begin
-  insert into public.profiles (id, email, full_name, role)
-  values (
-    new.id,
-    new.email,
-    new.raw_user_meta_data ->> 'full_name',
-    coalesce((new.raw_user_meta_data ->> 'role')::hq_role, 'support')
-  )
-  on conflict (id) do nothing;
+  if requested_role in ('admin', 'verification_manager', 'support', 'content_editor', 'developer') then
+    insert into public.profiles (id, email, full_name, role)
+    values (new.id, new.email, new.raw_user_meta_data ->> 'full_name', requested_role::hq_role)
+    on conflict (id) do nothing;
+  end if;
   return new;
 end;
 $$;
@@ -86,8 +95,40 @@ create table if not exists public.businesses (
   review_count int default 0,
   featured boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Public-site profile fields (search, business detail page). Nullable
+  -- since HQ-created/pending businesses won't have these until a full
+  -- profile is filled in.
+  slug text unique,
+  long_description text,
+  address text,
+  hours text,
+  pet_policy text,
+  service_animal_policy text,
+  esa_policy text,
+  amenities text[] not null default '{}',
+  images text[] not null default '{}',
+  lat double precision,
+  lng double precision
 );
+
+-- `create table if not exists` above won't add these to a businesses table
+-- that already existed before they were introduced.
+alter table public.businesses add column if not exists slug text;
+do $$ begin
+  alter table public.businesses add constraint businesses_slug_key unique (slug);
+exception when duplicate_object then null;
+end $$;
+alter table public.businesses add column if not exists long_description text;
+alter table public.businesses add column if not exists address text;
+alter table public.businesses add column if not exists hours text;
+alter table public.businesses add column if not exists pet_policy text;
+alter table public.businesses add column if not exists service_animal_policy text;
+alter table public.businesses add column if not exists esa_policy text;
+alter table public.businesses add column if not exists amenities text[] not null default '{}';
+alter table public.businesses add column if not exists images text[] not null default '{}';
+alter table public.businesses add column if not exists lat double precision;
+alter table public.businesses add column if not exists lng double precision;
 
 -- ---------------------------------------------------------------------------
 -- customers — end-users of the FurFinds consumer app (pet owners).
@@ -474,6 +515,16 @@ drop policy if exists "public_apply_insert_businesses" on public.businesses;
 create policy "public_apply_insert_businesses" on public.businesses
   for insert with check (status = 'pending');
 
+-- Public site: anyone (including anon/unauthenticated visitors) can browse
+-- active, verified business listings — that's the whole point of the
+-- directory. Pending/suspended/rejected businesses stay staff-only via the
+-- policy above.
+drop policy if exists "public_read_active_businesses" on public.businesses;
+create policy "public_read_active_businesses" on public.businesses
+  for select using (status = 'active');
+
+grant select on public.businesses to anon;
+
 drop policy if exists "staff_read_verification" on public.verification_applications;
 create policy "staff_read_verification" on public.verification_applications
   for select using (auth.uid() is not null);
@@ -706,6 +757,111 @@ values
   ('Whisker Wanderlust Hotel', 'Lodging', 'Boutique hotel with in-room pet amenities.', 'verified', 'active', 'Denver', 'CO', 'Sam Okafor', 'sam@whiskerwanderlust.com', 4.6, 98, false),
   ('Paws Plaza Retail', 'Retail', 'Pet-friendly shopping center.', 'basic', 'pending', 'Portland', 'OR', 'Jess Rivera', 'jess@pawsplaza.com', 0, 0, false)
 on conflict do nothing;
+
+-- Backfill slugs for the businesses above so they're reachable at
+-- /business/<slug> on the public site now that listings are live-sourced.
+update public.businesses set slug = 'bark-and-brew-cafe' where name = 'Bark & Brew Cafe' and slug is null;
+update public.businesses set slug = 'whisker-wanderlust-hotel' where name = 'Whisker Wanderlust Hotel' and slug is null;
+update public.businesses set slug = 'paws-plaza-retail' where name = 'Paws Plaza Retail' and slug is null;
+
+-- Curated launch listings — the public site's search/homepage/detail pages
+-- read live from this table, so these give the beta launch real content
+-- instead of an empty directory. Swap in real verified businesses as they
+-- come through the application flow.
+insert into public.businesses (
+  slug, name, category, description, long_description, tier, status, city, state,
+  address, phone, website, hours, pet_policy, service_animal_policy, esa_policy,
+  amenities, images, rating, review_count, featured, lat, lng
+) values
+  (
+    'the-hound-house-cafe', 'The Hound House Cafe', 'Restaurants & Cafes',
+    'A dog-loving cafe with a full pup menu and a fenced patio to play in.',
+    'The Hound House Cafe was built from the ground up for pet parents. Alongside its espresso bar and all-day brunch menu, it offers a dedicated pup menu, water and treat stations at every table, and a fenced outdoor patio where dogs can safely roam off-leash while you enjoy your coffee.',
+    'premium', 'active', 'Austin', 'TX', '1420 S Congress Ave, Austin, TX 78704', '(512) 555-0142', 'https://example.com',
+    'Mon–Sun: 7:00 AM – 6:00 PM', 'Pets welcome throughout the patio and designated indoor pet-friendly zone.',
+    'Service animals welcome everywhere, no restrictions.', 'Emotional support animals welcome on the patio.',
+    array['Water bowls', 'Pet menu', 'Fenced patio', 'Waste bags provided', 'Treat station'],
+    array['https://picsum.photos/seed/hound-house-0/900/650', 'https://picsum.photos/seed/hound-house-1/900/650', 'https://picsum.photos/seed/hound-house-2/900/650', 'https://picsum.photos/seed/hound-house-3/900/650'],
+    4.8, 214, true, 30.2504, -97.7495
+  ),
+  (
+    'wagging-tail-inn', 'Wagging Tail Inn', 'Hotels & Accommodations',
+    'Boutique pet-inclusive hotel with in-room pet beds and a dog run.',
+    'Wagging Tail Inn is a boutique hotel designed around traveling with pets. Every room comes with a pet bed, bowls, and a welcome treat. The property includes a fenced dog run, an on-call pet sitting service, and staff trained in pet first aid.',
+    'premium', 'active', 'Asheville', 'NC', '220 Biltmore Ave, Asheville, NC 28801', '(828) 555-0199', 'https://example.com',
+    'Front desk: 24/7', 'No weight limit, no breed restrictions, no additional pet fee.',
+    'Service animals welcome in all areas, no documentation required.', 'ESAs welcome with prior notice to front desk.',
+    array['In-room pet beds', 'Fenced dog run', 'Pet sitting', 'Pet first aid trained staff', 'Walking trails nearby'],
+    array['https://picsum.photos/seed/wagging-tail-0/900/650', 'https://picsum.photos/seed/wagging-tail-1/900/650', 'https://picsum.photos/seed/wagging-tail-2/900/650', 'https://picsum.photos/seed/wagging-tail-3/900/650'],
+    4.9, 331, true, 35.5951, -82.5515
+  ),
+  (
+    'riverside-bark-park', 'Riverside Bark Park', 'Parks & Outdoor Spaces',
+    'Open riverside dog park with agility equipment and shaded seating.',
+    'Riverside Bark Park spans five acres along the river with separate areas for large and small dogs, agility equipment, and shaded seating for owners. Waste stations are maintained daily by the city parks department.',
+    'basic', 'active', 'Denver', 'CO', '1800 Riverfront Pkwy, Denver, CO 80202', '(303) 555-0110', 'https://example.com',
+    'Daily: 6:00 AM – 10:00 PM', 'Dogs must be leashed except in designated off-leash zones. Owners must clean up after pets.',
+    'Service animals permitted throughout the park.', 'Treated as standard pets; leash rules apply.',
+    array['Off-leash zone', 'Agility equipment', 'Waste stations', 'Shaded seating', 'Water fountains'],
+    array['https://picsum.photos/seed/bark-park-0/900/650', 'https://picsum.photos/seed/bark-park-1/900/650', 'https://picsum.photos/seed/bark-park-2/900/650', 'https://picsum.photos/seed/bark-park-3/900/650'],
+    4.5, 128, true, 39.7565, -104.9987
+  ),
+  (
+    'paws-and-claws-boutique', 'Paws & Claws Boutique', 'Retail & Shopping',
+    'Pet supply boutique that welcomes leashed pets to shop with you.',
+    'Paws & Claws Boutique carries a curated selection of pet food, toys, and accessories. Leashed, well-behaved pets are welcome to browse the store with their owners, and staff are happy to answer questions about the store''s pet policy.',
+    'verified', 'active', 'Portland', 'OR', '980 NW 23rd Ave, Portland, OR 97210', '(503) 555-0176', 'https://example.com',
+    'Mon–Sat: 10:00 AM – 7:00 PM, Sun: 11:00 AM – 5:00 PM', 'Leashed pets welcome throughout the store.',
+    'Service animals always welcome.', 'ESAs welcome, leash required.',
+    array['Designated pet area', 'Water bowls', 'Treat samples', 'Staff trained on policy'],
+    array['https://picsum.photos/seed/paws-boutique-0/900/650', 'https://picsum.photos/seed/paws-boutique-1/900/650', 'https://picsum.photos/seed/paws-boutique-2/900/650', 'https://picsum.photos/seed/paws-boutique-3/900/650'],
+    4.6, 89, true, 45.5301, -122.6976
+  ),
+  (
+    'furry-friends-grooming-studio', 'Furry Friends Grooming Studio', 'Groomers & Pet Services',
+    'Full-service grooming, daycare, and boarding with pet-trained staff.',
+    'Furry Friends Grooming Studio offers grooming, daycare, and boarding from a team trained in low-stress handling techniques. The studio maintains detailed emergency protocols and works closely with a nearby veterinary partner.',
+    'premium', 'active', 'Chicago', 'IL', '3312 N Southport Ave, Chicago, IL 60657', '(773) 555-0134', 'https://example.com',
+    'Mon–Sat: 8:00 AM – 6:00 PM', 'By appointment; all pets must have current vaccination records on file.',
+    'Service animals accommodated with staff trained on ADA regulations.', 'ESAs accepted for grooming and boarding services.',
+    array['Low-stress handling', 'Emergency protocols', 'Daycare webcams', 'Climate-controlled boarding'],
+    array['https://picsum.photos/seed/grooming-studio-0/900/650', 'https://picsum.photos/seed/grooming-studio-1/900/650', 'https://picsum.photos/seed/grooming-studio-2/900/650', 'https://picsum.photos/seed/grooming-studio-3/900/650'],
+    4.9, 176, false, 41.9403, -87.6638
+  ),
+  (
+    'cornerstone-veterinary-clinic', 'Cornerstone Veterinary Clinic', 'Veterinary & Healthcare',
+    'Full-service animal hospital with 24/7 emergency care.',
+    'Cornerstone Veterinary Clinic provides preventive care, surgery, dental, and round-the-clock emergency services. The clinic''s fear-free certified staff focus on reducing stress for both pets and their people.',
+    'premium', 'active', 'Nashville', 'TN', '615 Church St, Nashville, TN 37219', '(615) 555-0188', 'https://example.com',
+    '24/7 Emergency Care', 'Open to all species; walk-ins accepted for emergencies.',
+    'Service animals prioritized for same-day scheduling when needed.', 'ESAs treated as standard patients.',
+    array['24/7 emergency care', 'Fear-free certified', 'On-site pharmacy', 'Digital imaging'],
+    array['https://picsum.photos/seed/vet-clinic-0/900/650', 'https://picsum.photos/seed/vet-clinic-1/900/650', 'https://picsum.photos/seed/vet-clinic-2/900/650', 'https://picsum.photos/seed/vet-clinic-3/900/650'],
+    4.7, 402, false, 36.1657, -86.7844
+  ),
+  (
+    'yappy-hour-pet-events', 'Yappy Hour Pet Events', 'Events & Activities',
+    'Monthly pet meetups, adoption fairs, and outdoor movie nights.',
+    'Yappy Hour Pet Events hosts monthly community meetups including adoption fairs, pet-friendly outdoor movie nights, and seasonal festivals, all held at partner venues with clear pet policies posted in advance.',
+    'verified', 'active', 'San Diego', 'CA', 'Liberty Station, San Diego, CA 92106', '(619) 555-0155', 'https://example.com',
+    'Events posted monthly', 'Leashed pets welcome at all events; policies vary slightly by venue.',
+    'Service animals welcome at every event.', 'ESAs welcome, leash required.',
+    array['Water stations', 'Waste bags', 'Vet volunteers on-site', 'Adoption partners'],
+    array['https://picsum.photos/seed/yappy-hour-0/900/650', 'https://picsum.photos/seed/yappy-hour-1/900/650', 'https://picsum.photos/seed/yappy-hour-2/900/650', 'https://picsum.photos/seed/yappy-hour-3/900/650'],
+    4.6, 71, false, 32.7492, -117.2151
+  ),
+  (
+    'petcab-rides', 'PetCab Rides', 'Transportation',
+    'On-demand rideshare service with pet-safe vehicles and carriers.',
+    'PetCab Rides offers on-demand transportation with seat covers, safety harnesses, and loaner carriers for pet parents without a car. Drivers complete a pet-handling orientation before joining the platform.',
+    'basic', 'active', 'Seattle', 'WA', 'Citywide service', '(206) 555-0121', 'https://example.com',
+    'Daily: 6:00 AM – 11:00 PM', 'All pets must be leashed or carriered during the ride.',
+    'Service animals ride free of additional fees.', 'ESAs accepted with standard carrier policy.',
+    array['Seat covers', 'Safety harnesses', 'Loaner carriers', 'Pet-trained drivers'],
+    array['https://picsum.photos/seed/petcab-0/900/650', 'https://picsum.photos/seed/petcab-1/900/650', 'https://picsum.photos/seed/petcab-2/900/650', 'https://picsum.photos/seed/petcab-3/900/650'],
+    4.4, 58, false, 47.6062, -122.3321
+  )
+on conflict (slug) do nothing;
 
 insert into public.department_alerts (department, message, severity)
 values

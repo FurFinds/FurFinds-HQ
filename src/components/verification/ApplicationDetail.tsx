@@ -9,6 +9,12 @@ import { formatDateTime } from "@/lib/utils";
 import { decideApplication, runAiAnalysis } from "@/app/hq/verification/actions";
 import type { VerificationApplication } from "@/lib/types/database";
 
+// Flip once ANTHROPIC_API_KEY is set as a Supabase secret and the
+// analyze-application Edge Function is deployed (see
+// supabase/functions/analyze-application/index.ts). Until then the button
+// stays visibly disabled instead of erroring when clicked.
+const AI_VERIFICATION_ENABLED = process.env.NEXT_PUBLIC_AI_VERIFICATION_ENABLED === "true";
+
 export function ApplicationDetail({
   application,
   canReview,
@@ -81,7 +87,14 @@ export function ApplicationDetail({
 
       <div className="mt-5 rounded-lg border border-ff-light-blue/40 bg-ff-pale-blue/50 p-4">
         <div className="mb-2 flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-ff-dark-blue">AI Analysis</h4>
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-semibold text-ff-dark-blue">AI Analysis</h4>
+            {!AI_VERIFICATION_ENABLED && (
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                Coming soon
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {application.ai_score != null && (
               <span className="text-sm font-bold text-ff-dark-blue">{application.ai_score}/100</span>
@@ -91,7 +104,12 @@ export function ApplicationDetail({
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={analyzing}
+                disabled={analyzing || !AI_VERIFICATION_ENABLED}
+                title={
+                  AI_VERIFICATION_ENABLED
+                    ? undefined
+                    : "Add ANTHROPIC_API_KEY as a Supabase secret and deploy analyze-application to enable this."
+                }
                 onClick={handleAnalyze}
               >
                 {analyzing ? "Analyzing…" : "Run AI Analysis"}
@@ -99,6 +117,12 @@ export function ApplicationDetail({
             )}
           </div>
         </div>
+        {!AI_VERIFICATION_ENABLED && application.ai_score == null && (
+          <p className="mb-2 text-xs text-slate-500">
+            AI-assisted tier suggestions aren&rsquo;t connected yet. Add an Anthropic API key to enable
+            this — see supabase/functions/analyze-application for setup.
+          </p>
+        )}
         {analyzeError && <p className="mb-2 text-xs text-[#b91c1c]">{analyzeError}</p>}
         {application.ai_score != null && (
           <div className="mb-3 h-2 w-full rounded-full bg-white">

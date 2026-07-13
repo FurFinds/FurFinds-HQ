@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
+import { analyzeApplication } from "@/lib/ai/verification";
+import type { VerificationApplication } from "@/lib/types/database";
 
 type Decision = "approved" | "rejected" | "needs_info";
 
@@ -72,15 +74,28 @@ export async function runAiAnalysis(applicationId: string) {
   }
 
   const supabase = createClient();
-  const { error } = await supabase.functions.invoke("analyze-application", {
-    body: { applicationId },
-  });
+  const { data: application, error: fetchError } = await supabase
+    .from("verification_applications")
+    .select("*, businesses:business_id (name, category, description, website)")
+    .eq("id", applicationId)
+    .single();
 
-  if (error) {
-    throw new Error(
-      `AI analysis failed: ${error.message}. Make sure the analyze-application Edge Function is deployed and ANTHROPIC_API_KEY is set on the Supabase project.`
-    );
+  if (fetchError || !application) {
+    throw new Error("Application not found.");
   }
+
+  const result = await analyzeApplication(application as unknown as VerificationApplication);
+
+  const { error: updateError } = await supabase
+    .from("verification_applications")
+    .update({
+      ai_score: result.confidence,
+      ai_summary: `AI-suggested tier: ${result.tier}. ${result.summary}`,
+      ai_flags: result.flags,
+    })
+    .eq("id", applicationId);
+
+  if (updateError) throw new Error(updateError.message);
 
   revalidatePath("/hq/verification");
 }

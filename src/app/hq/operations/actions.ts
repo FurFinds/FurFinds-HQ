@@ -26,13 +26,27 @@ function assertCanManage(role: string) {
   }
 }
 
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 export async function createBusiness(input: BusinessFormInput) {
   const { profile } = await requireProfile();
   assertCanManage(profile.role);
 
   const supabase = createClient();
+  // The public site only shows businesses with a slug (see
+  // public_read_active_businesses + FurFinds' getAllBusinesses filter), so
+  // a business created here without one would silently never appear once
+  // marked active. Generate it now rather than relying on staff to fill in
+  // a slug field by hand.
   const { error } = await supabase.from("businesses").insert({
     ...input,
+    slug: `${slugify(input.name)}-${crypto.randomUUID().slice(0, 8)}`,
     rating: 0,
     review_count: 0,
   } satisfies Partial<Business>);
@@ -46,9 +60,13 @@ export async function updateBusiness(id: string, input: BusinessFormInput) {
   assertCanManage(profile.role);
 
   const supabase = createClient();
+
+  const { data: existing } = await supabase.from("businesses").select("slug").eq("id", id).single();
+  const slug = existing?.slug || `${slugify(input.name)}-${id.slice(0, 8)}`;
+
   const { error } = await supabase
     .from("businesses")
-    .update({ ...input, updated_at: new Date().toISOString() } satisfies Partial<Business>)
+    .update({ ...input, slug, updated_at: new Date().toISOString() } satisfies Partial<Business>)
     .eq("id", id);
 
   if (error) throw new Error(error.message);
