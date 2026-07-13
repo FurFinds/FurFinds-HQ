@@ -20,24 +20,22 @@ export default async function FinancePage() {
 
   const canManage = profile.role === "admin";
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount_cents, 0);
-  const netCents = metrics.revenueCents - totalExpenses;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-slate-900">Finance</h2>
-        <p className="text-sm text-slate-500">Revenue, expenses, and CSV import/export.</p>
+        <p className="text-sm text-slate-500">
+          Subscriptions, expenses, and CSV import/export. Revenue reporting will populate once Stripe
+          billing is connected.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <MetricCard label="Revenue" value={formatCurrency(metrics.revenueCents)} accent="success" />
-        <MetricCard label="MRR" value={formatCurrency(metrics.mrrCents)} />
-        <MetricCard
-          label="Expenses"
-          value={formatCurrency(totalExpenses)}
-          accent="warning"
-        />
-        <MetricCard label="Net" value={formatCurrency(netCents)} accent="gold" />
+        <MetricCard label="Active Subscriptions" value={metrics.activeSubscriptions.toLocaleString()} accent="success" />
+        <MetricCard label="Canceled (30d)" value={metrics.canceledSubscriptions30d.toLocaleString()} />
+        <MetricCard label="Expenses" value={formatCurrency(totalExpenses)} accent="warning" />
+        <MetricCard label="Churn" value={`${metrics.churnRate.toFixed(1)}%`} accent="gold" />
       </div>
 
       <Card>

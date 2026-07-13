@@ -5,15 +5,9 @@ import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
 import { StatusBadge, Badge } from "@/components/ui/Badge";
 import { BusinessModal } from "./BusinessModal";
-import { deleteBusiness, toggleFeatured } from "@/app/hq/operations/actions";
+import { deleteBusiness, toggleActive } from "@/app/hq/operations/actions";
 import { formatDate } from "@/lib/utils";
 import type { Business } from "@/lib/types/database";
-
-const TIER_TONE: Record<string, "neutral" | "silver" | "gold" | "bronze"> = {
-  basic: "neutral",
-  verified: "neutral",
-  premium: "gold",
-};
 
 export function BusinessTable({
   businesses,
@@ -32,7 +26,7 @@ export function BusinessTable({
   const filtered = useMemo(() => {
     return businesses.filter((b) => {
       if (tier !== "all" && b.tier !== tier) return false;
-      if (status !== "all" && b.status !== status) return false;
+      if (status !== "all" && b.verification_status !== status) return false;
       if (search) {
         const q = search.toLowerCase();
         if (
@@ -71,18 +65,19 @@ export function BusinessTable({
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
         />
-        <Select value={tier} onChange={(e) => setTier(e.target.value)} className="w-36">
+        <Select value={tier} onChange={(e) => setTier(e.target.value)} className="w-40">
           <option value="all">All tiers</option>
-          <option value="basic">Basic</option>
-          <option value="verified">Verified</option>
-          <option value="premium">Premium</option>
+          <option value="pets_allowed">Pets Allowed</option>
+          <option value="pet_friendly">Pet-Friendly</option>
+          <option value="pet_inclusive">Pet-Inclusive</option>
         </Select>
         <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-40">
           <option value="all">All statuses</option>
           <option value="pending">Pending</option>
-          <option value="active">Active</option>
-          <option value="suspended">Suspended</option>
+          <option value="in_progress">In Progress</option>
+          <option value="approved">Approved</option>
           <option value="rejected">Rejected</option>
+          <option value="expired">Expired</option>
         </Select>
         {canManage && (
           <Button className="ml-auto" onClick={openAdd}>
@@ -99,7 +94,7 @@ export function BusinessTable({
               <th className="px-4 py-3 font-medium">Location</th>
               <th className="px-4 py-3 font-medium">Tier</th>
               <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Rating</th>
+              <th className="px-4 py-3 font-medium">Active</th>
               <th className="px-4 py-3 font-medium">Added</th>
               {canManage && <th className="px-4 py-3 font-medium text-right">Actions</th>}
             </tr>
@@ -110,7 +105,6 @@ export function BusinessTable({
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-slate-900">{business.name}</span>
-                    {business.featured && <Badge tone="gold">Featured</Badge>}
                   </div>
                   <p className="text-xs text-slate-500">{business.category ?? "Uncategorized"}</p>
                 </td>
@@ -118,27 +112,32 @@ export function BusinessTable({
                   {[business.city, business.state].filter(Boolean).join(", ") || "—"}
                 </td>
                 <td className="px-4 py-3">
-                  <Badge tone={TIER_TONE[business.tier] === "gold" ? "gold" : "neutral"}>
-                    {business.tier}
+                  <Badge tone={business.tier === "pet_inclusive" ? "gold" : "neutral"}>
+                    {business.tier.replace("_", " ")}
                   </Badge>
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={business.status} />
+                  <StatusBadge status={business.verification_status} />
                 </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {business.rating > 0 ? `${business.rating.toFixed(1)} (${business.review_count})` : "—"}
+                <td className="px-4 py-3">
+                  {canManage ? (
+                    <button
+                      className="text-xs font-medium text-ff-dark-blue hover:underline"
+                      onClick={() => startTransition(() => toggleActive(business.id, !business.is_active))}
+                      disabled={isPending}
+                    >
+                      {business.is_active ? "Active" : "Inactive"}
+                    </button>
+                  ) : (
+                    <Badge tone={business.is_active ? "success" : "neutral"}>
+                      {business.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{formatDate(business.created_at)}</td>
                 {canManage && (
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
-                      <button
-                        className="text-xs font-medium text-ff-dark-blue hover:underline"
-                        onClick={() => startTransition(() => toggleFeatured(business.id, !business.featured))}
-                        disabled={isPending}
-                      >
-                        {business.featured ? "Unfeature" : "Feature"}
-                      </button>
                       <button
                         className="text-xs font-medium text-ff-dark-blue hover:underline"
                         onClick={() => openEdit(business)}

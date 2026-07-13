@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Customer, Profile } from "@/lib/types/database";
+import type { Profile, SiteUser } from "@/lib/types/database";
 
 export async function getAllProfiles(): Promise<Profile[]> {
   const supabase = createClient();
@@ -10,10 +10,10 @@ export async function getAllProfiles(): Promise<Profile[]> {
   return data ?? [];
 }
 
-export async function getAllCustomers(): Promise<Customer[]> {
+export async function getAllSiteUsers(): Promise<SiteUser[]> {
   const supabase = createClient();
   const { data } = await supabase
-    .from("customers")
+    .from("users")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(200);

@@ -3,21 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
-import type { Business, BusinessStatus, BusinessTier } from "@/lib/types/database";
+import type { Business, BusinessCategory, BusinessTier, VerificationStatus } from "@/lib/types/database";
 
 export interface BusinessFormInput {
   name: string;
-  category: string;
+  category: BusinessCategory;
   description: string;
   tier: BusinessTier;
-  status: BusinessStatus;
+  verification_status: VerificationStatus;
+  is_active: boolean;
   city: string;
   state: string;
-  owner_name: string;
-  owner_email: string;
+  zip: string;
+  address: string;
   phone: string;
   website: string;
-  featured: boolean;
+  business_hours: string;
+  pet_policy: string;
+  service_animals_allowed: boolean;
+  esa_policy: string;
 }
 
 function assertCanManage(role: string) {
@@ -47,8 +51,6 @@ export async function createBusiness(input: BusinessFormInput) {
   const { error } = await supabase.from("businesses").insert({
     ...input,
     slug: `${slugify(input.name)}-${crypto.randomUUID().slice(0, 8)}`,
-    rating: 0,
-    review_count: 0,
   } satisfies Partial<Business>);
 
   if (error) throw new Error(error.message);
@@ -103,14 +105,14 @@ export async function updateSiteSetting(key: string, value: Record<string, unkno
   revalidatePath("/hq/operations");
 }
 
-export async function toggleFeatured(id: string, featured: boolean) {
+export async function toggleActive(id: string, isActive: boolean) {
   const { profile } = await requireProfile();
   assertCanManage(profile.role);
 
   const supabase = createClient();
   const { error } = await supabase
     .from("businesses")
-    .update({ featured, updated_at: new Date().toISOString() })
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

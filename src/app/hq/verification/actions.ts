@@ -4,15 +4,17 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
 import { analyzeApplication } from "@/lib/ai/verification";
-import type { VerificationApplication } from "@/lib/types/database";
+import type { Business, VerificationStatus } from "@/lib/types/database";
 
 type Decision = "approved" | "rejected" | "needs_info";
 
-export async function decideApplication(
-  applicationId: string,
-  decision: Decision,
-  notes: string
-) {
+const STATUS_FOR_DECISION: Record<Decision, VerificationStatus> = {
+  approved: "approved",
+  rejected: "rejected",
+  needs_info: "in_progress",
+};
+
+export async function decideBusiness(businessId: string, decision: Decision, notes: string) {
   const { userId, profile } = await requireProfile();
 
   if (profile.role !== "admin" && profile.role !== "verification_manager") {
@@ -20,53 +22,34 @@ export async function decideApplication(
   }
 
   const supabase = createClient();
-
-  const { data: application, error: fetchError } = await supabase
-    .from("verification_applications")
-    .select("id, business_id, tier_requested")
-    .eq("id", applicationId)
-    .single();
-
-  if (fetchError || !application) {
-    throw new Error("Application not found.");
-  }
+  const verificationStatus = STATUS_FOR_DECISION[decision];
+  const decidedAt = new Date().toISOString();
 
   const { error: updateError } = await supabase
-    .from("verification_applications")
+    .from("businesses")
     .update({
-      status: decision,
-      reviewed_by: userId,
-      reviewed_at: new Date().toISOString(),
-      review_notes: notes || null,
+      verification_status: verificationStatus,
+      is_active: verificationStatus === "approved",
+      updated_at: decidedAt,
     })
-    .eq("id", applicationId);
+    .eq("id", businessId);
 
-  if (updateError) {
-    throw new Error(updateError.message);
-  }
+  if (updateError) throw new Error(updateError.message);
 
-  if (decision === "approved" && application.business_id) {
-    await supabase
-      .from("businesses")
-      .update({
-        status: "active",
-        tier: application.tier_requested,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", application.business_id);
-  }
+  const { error: verificationError } = await supabase.from("verification").insert({
+    business_id: businessId,
+    human_decision: decision === "needs_info" ? "overridden" : decision,
+    notes: notes || null,
+    reviewed_by: userId,
+    decided_at: decidedAt,
+  });
 
-  if (decision === "rejected" && application.business_id) {
-    await supabase
-      .from("businesses")
-      .update({ status: "rejected", updated_at: new Date().toISOString() })
-      .eq("id", application.business_id);
-  }
+  if (verificationError) throw new Error(verificationError.message);
 
   revalidatePath("/hq/verification");
 }
 
-export async function runAiAnalysis(applicationId: string) {
+export async function runAiAnalysis(businessId: string) {
   const { profile } = await requireProfile();
 
   if (profile.role !== "admin" && profile.role !== "verification_manager") {
@@ -74,28 +57,28 @@ export async function runAiAnalysis(applicationId: string) {
   }
 
   const supabase = createClient();
-  const { data: application, error: fetchError } = await supabase
-    .from("verification_applications")
-    .select("*, businesses:business_id (name, category, description, website)")
-    .eq("id", applicationId)
+  const { data: business, error: fetchError } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("id", businessId)
     .single();
 
-  if (fetchError || !application) {
-    throw new Error("Application not found.");
+  if (fetchError || !business) {
+    throw new Error("Business not found.");
   }
 
-  const result = await analyzeApplication(application as unknown as VerificationApplication);
+  const result = await analyzeApplication(business as Business);
 
-  const { error: updateError } = await supabase
-    .from("verification_applications")
-    .update({
-      ai_score: result.confidence,
-      ai_summary: `AI-suggested tier: ${result.tier}. ${result.summary}`,
-      ai_flags: result.flags,
-    })
-    .eq("id", applicationId);
+  const { error: insertError } = await supabase.from("verification").insert({
+    business_id: businessId,
+    ai_score: result.confidence,
+    ai_confidence: result.confidence,
+    ai_tier_suggestion: result.tier,
+    ai_policy_extraction: result.policyExtraction,
+    ai_sentiment_analysis: result.sentimentAnalysis,
+  });
 
-  if (updateError) throw new Error(updateError.message);
+  if (insertError) throw new Error(insertError.message);
 
   revalidatePath("/hq/verification");
 }

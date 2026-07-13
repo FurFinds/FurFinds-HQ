@@ -1,6 +1,6 @@
 import { requireProfile } from "@/lib/auth/session";
 import { requireDepartmentAccess } from "@/lib/auth/guard";
-import { getAllProfiles, getAllCustomers } from "@/lib/data/team";
+import { getAllProfiles, getAllSiteUsers } from "@/lib/data/team";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { StaffTable } from "@/components/team/StaffTable";
 import { formatDate, initials } from "@/lib/utils";
@@ -10,7 +10,7 @@ export default async function TeamPage() {
   const { profile } = await requireProfile();
   requireDepartmentAccess(profile, "team");
 
-  const [staff, customers] = await Promise.all([getAllProfiles(), getAllCustomers()]);
+  const [staff, siteUsers] = await Promise.all([getAllProfiles(), getAllSiteUsers()]);
 
   return (
     <div className="space-y-6">
@@ -28,11 +28,11 @@ export default async function TeamPage() {
 
       <Card>
         <CardHeader
-          title="Pet Owners (Customers)"
-          subtitle={`${customers.length} signed-up pet parent${customers.length === 1 ? "" : "s"}`}
+          title="Public Site Members"
+          subtitle={`${siteUsers.length} signed-up pet owner${siteUsers.length === 1 ? "" : "s"} and businesses`}
         />
-        {customers.length === 0 ? (
-          <p className="text-sm text-slate-400">No customers yet.</p>
+        {siteUsers.length === 0 ? (
+          <p className="text-sm text-slate-400">No public-site members yet.</p>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200/70">
             <table className="w-full min-w-[520px] text-left text-sm">
@@ -40,28 +40,26 @@ export default async function TeamPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Location</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Role</th>
                   <th className="px-4 py-3 font-medium">Joined</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {customers.map((c) => (
-                  <tr key={c.id}>
+                {siteUsers.map((u) => (
+                  <tr key={u.id}>
                     <td className="flex items-center gap-2 px-4 py-3 text-slate-900">
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ff-pale-blue text-xs font-semibold text-ff-dark-blue">
-                        {initials(c.full_name)}
+                        {initials(u.name)}
                       </span>
-                      {c.full_name ?? "—"}
+                      {u.name ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{c.email ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {[c.city, c.state].filter(Boolean).join(", ") || "—"}
-                    </td>
+                    <td className="px-4 py-3 text-slate-600">{u.email ?? "—"}</td>
                     <td className="px-4 py-3">
-                      <Badge tone={c.status === "active" ? "success" : "error"}>{c.status}</Badge>
+                      <Badge tone={u.role === "business" ? "gold" : "info"}>
+                        {u.role.replace("_", " ")}
+                      </Badge>
                     </td>
-                    <td className="px-4 py-3 text-slate-500">{formatDate(c.created_at)}</td>
+                    <td className="px-4 py-3 text-slate-500">{formatDate(u.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
