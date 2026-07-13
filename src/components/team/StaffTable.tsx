@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Select } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { formatDate, initials } from "@/lib/utils";
@@ -20,9 +20,23 @@ export function StaffTable({
   isAdmin: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleRoleChange(id: string, role: HqRole) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await updateStaffRole(id, role);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Something went wrong.");
+      }
+    });
+  }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200/70">
+    <div className="space-y-2">
+      {error && <p className="text-sm text-[#b91c1c]">{error}</p>}
+      <div className="overflow-x-auto rounded-xl border border-slate-200/70">
       <table className="w-full min-w-[520px] text-left text-sm">
         <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
@@ -53,9 +67,7 @@ export function StaffTable({
                   <Select
                     value={s.role}
                     disabled={isPending}
-                    onChange={(e) =>
-                      startTransition(() => updateStaffRole(s.id, e.target.value as HqRole))
-                    }
+                    onChange={(e) => handleRoleChange(s.id, e.target.value as HqRole)}
                     className="w-44"
                   >
                     {ROLE_OPTIONS.map(([value, label]) => (
@@ -73,6 +85,7 @@ export function StaffTable({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

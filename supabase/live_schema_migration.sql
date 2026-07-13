@@ -6,7 +6,7 @@
 -- speculative supabase/schema.sql files in this repo and in FurFinds. This
 -- migration is written specifically against the REAL live schema: it fixes
 -- two privilege-escalation bugs, wires up JWT role claims so the existing
--- `auth.jwt() ->> 'role'` RLS policies actually work, adds a handful of
+-- `auth.jwt() ->> 'user_role'` RLS policies actually work, adds a handful of
 -- purely additive columns the app needs, and creates genuinely new tables
 -- for HQ features that have no existing equivalent (blog, calendar, email
 -- log, etc.) — it does not rename or restructure anything that already
@@ -19,7 +19,7 @@
 -- Supabase Dashboard → Authentication → Hooks → "Customize Access Token
 -- (JWT) Claims hook" → enable it → select
 -- public.custom_access_token_hook. Without this, profiles.role still won't
--- reach auth.jwt(), and every `auth.jwt() ->> 'role' = 'admin'` RLS policy
+-- reach auth.jwt(), and every `auth.jwt() ->> 'user_role' = 'admin'` RLS policy
 -- (already defined on businesses/profiles/reviews/reports/users/waitlist)
 -- stays permanently unsatisfiable, including for your own admin account.
 -- ============================================================================
@@ -94,7 +94,7 @@ exception when duplicate_object then null;
 end $$;
 
 -- ----------------------------------------------------------------------------
--- 3. JWT role claim — makes the existing `auth.jwt() ->> 'role' = 'admin'`
+-- 3. JWT role claim — makes the existing `auth.jwt() ->> 'user_role' = 'admin'`
 --    RLS policies on businesses/profiles/reviews/reports/users/waitlist
 --    actually work. Requires the manual Dashboard step noted at the top of
 --    this file; the function alone does nothing until that's enabled.
@@ -112,7 +112,7 @@ begin
 
   claims := coalesce(event -> 'claims', '{}'::jsonb);
   if staff_role is not null then
-    claims := jsonb_set(claims, '{role}', to_jsonb(staff_role));
+    claims := jsonb_set(claims, '{user_role}', to_jsonb(staff_role));
   end if;
   event := jsonb_set(event, '{claims}', claims);
 
@@ -123,6 +123,17 @@ $$;
 grant usage on schema public to supabase_auth_admin;
 grant execute on function public.custom_access_token_hook to supabase_auth_admin;
 revoke execute on function public.custom_access_token_hook from authenticated, anon, public;
+
+-- The hook above selects from public.profiles as supabase_auth_admin, but
+-- that role has no base table privilege and profiles has RLS enabled with
+-- no policy covering it — without both of the grants below every login
+-- fails with "Error running hook" (permission denied for table profiles).
+grant select on public.profiles to supabase_auth_admin;
+drop policy if exists "auth_admin_read_profiles" on public.profiles;
+create policy "auth_admin_read_profiles" on public.profiles
+  as permissive for select
+  to supabase_auth_admin
+  using (true);
 
 -- ----------------------------------------------------------------------------
 -- 4. Safe additive columns on existing tables — nothing renamed, nothing
@@ -184,28 +195,28 @@ create policy "businesses_owner_insert" on public.businesses
 -- verification_manager/admin need write access to businesses/verification
 -- for the verification queue.
 drop policy if exists "staff_read_reports" on public.reports;
-create policy "staff_read_reports" on public.reports for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_reports" on public.reports for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_reports" on public.reports;
 create policy "staff_write_reports" on public.reports for update
-  using (auth.jwt() ->> 'role' in ('admin', 'support'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'support'));
 
 -- (businesses_read, live, using true, already covers staff SELECT — no
 -- separate staff read policy needed here.)
 drop policy if exists "staff_write_businesses" on public.businesses;
 create policy "staff_write_businesses" on public.businesses for all
-  using (auth.jwt() ->> 'role' in ('admin', 'verification_manager', 'support'))
-  with check (auth.jwt() ->> 'role' in ('admin', 'verification_manager', 'support'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'verification_manager', 'support'))
+  with check (auth.jwt() ->> 'user_role' in ('admin', 'verification_manager', 'support'));
 
 drop policy if exists "staff_all_verification" on public.verification;
 create policy "staff_all_verification" on public.verification for all
-  using (auth.jwt() ->> 'role' in ('admin', 'verification_manager'))
-  with check (auth.jwt() ->> 'role' in ('admin', 'verification_manager'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'verification_manager'))
+  with check (auth.jwt() ->> 'user_role' in ('admin', 'verification_manager'));
 drop policy if exists "staff_read_verification" on public.verification;
-create policy "staff_read_verification" on public.verification for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_verification" on public.verification for select using (auth.jwt() ->> 'user_role' is not null);
 
 -- ----------------------------------------------------------------------------
 -- 5. New tables — HQ features with no existing equivalent in the live
---    schema. RLS follows the same auth.jwt() ->> 'role' convention already
+--    schema. RLS follows the same auth.jwt() ->> 'user_role' convention already
 --    used on businesses/profiles/reviews/reports/users.
 -- ----------------------------------------------------------------------------
 
@@ -352,71 +363,71 @@ alter table public.revenue_snapshots enable row level security;
 alter table public.discount_codes enable row level security;
 
 drop policy if exists "staff_read_blog_posts" on public.blog_posts;
-create policy "staff_read_blog_posts" on public.blog_posts for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_blog_posts" on public.blog_posts for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_blog_posts" on public.blog_posts;
 create policy "staff_write_blog_posts" on public.blog_posts for all
-  using (auth.jwt() ->> 'role' in ('admin', 'content_editor'))
-  with check (auth.jwt() ->> 'role' in ('admin', 'content_editor'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'))
+  with check (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'));
 drop policy if exists "public_read_published_blog_posts" on public.blog_posts;
 create policy "public_read_published_blog_posts" on public.blog_posts for select using (status = 'published');
 
 drop policy if exists "staff_all_calendar_events" on public.calendar_events;
 create policy "staff_all_calendar_events" on public.calendar_events for all
-  using (auth.jwt() ->> 'role' is not null) with check (auth.jwt() ->> 'role' is not null);
+  using (auth.jwt() ->> 'user_role' is not null) with check (auth.jwt() ->> 'user_role' is not null);
 
 drop policy if exists "staff_read_content_posts" on public.content_posts;
-create policy "staff_read_content_posts" on public.content_posts for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_content_posts" on public.content_posts for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_content_posts" on public.content_posts;
 create policy "staff_write_content_posts" on public.content_posts for all
-  using (auth.jwt() ->> 'role' in ('admin', 'content_editor'))
-  with check (auth.jwt() ->> 'role' in ('admin', 'content_editor'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'))
+  with check (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'));
 
 drop policy if exists "staff_read_email_log" on public.email_log;
-create policy "staff_read_email_log" on public.email_log for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_email_log" on public.email_log for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_email_log" on public.email_log;
-create policy "staff_write_email_log" on public.email_log for insert with check (auth.jwt() ->> 'role' is not null);
+create policy "staff_write_email_log" on public.email_log for insert with check (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_update_email_log" on public.email_log;
-create policy "staff_update_email_log" on public.email_log for update using (auth.jwt() ->> 'role' is not null);
+create policy "staff_update_email_log" on public.email_log for update using (auth.jwt() ->> 'user_role' is not null);
 
 drop policy if exists "staff_read_compliance" on public.compliance_records;
-create policy "staff_read_compliance" on public.compliance_records for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_compliance" on public.compliance_records for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_compliance" on public.compliance_records;
 create policy "staff_write_compliance" on public.compliance_records for all
-  using (auth.jwt() ->> 'role' = 'admin') with check (auth.jwt() ->> 'role' = 'admin');
+  using (auth.jwt() ->> 'user_role' = 'admin') with check (auth.jwt() ->> 'user_role' = 'admin');
 
 drop policy if exists "staff_read_expenses" on public.expenses;
-create policy "staff_read_expenses" on public.expenses for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_expenses" on public.expenses for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_expenses" on public.expenses;
 create policy "staff_write_expenses" on public.expenses for all
-  using (auth.jwt() ->> 'role' = 'admin') with check (auth.jwt() ->> 'role' = 'admin');
+  using (auth.jwt() ->> 'user_role' = 'admin') with check (auth.jwt() ->> 'user_role' = 'admin');
 
 drop policy if exists "staff_all_meetings" on public.meetings;
 create policy "staff_all_meetings" on public.meetings for all
-  using (auth.jwt() ->> 'role' is not null) with check (auth.jwt() ->> 'role' is not null);
+  using (auth.jwt() ->> 'user_role' is not null) with check (auth.jwt() ->> 'user_role' is not null);
 
 drop policy if exists "staff_all_department_alerts" on public.department_alerts;
 create policy "staff_all_department_alerts" on public.department_alerts for all
-  using (auth.jwt() ->> 'role' is not null) with check (auth.jwt() ->> 'role' is not null);
+  using (auth.jwt() ->> 'user_role' is not null) with check (auth.jwt() ->> 'user_role' is not null);
 
 drop policy if exists "staff_read_site_settings" on public.site_settings;
 create policy "staff_read_site_settings" on public.site_settings for select using (true);
 drop policy if exists "staff_write_site_settings" on public.site_settings;
 create policy "staff_write_site_settings" on public.site_settings for all
-  using (auth.jwt() ->> 'role' in ('admin', 'content_editor'))
-  with check (auth.jwt() ->> 'role' in ('admin', 'content_editor'));
+  using (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'))
+  with check (auth.jwt() ->> 'user_role' in ('admin', 'content_editor'));
 grant select on public.site_settings to anon;
 
 drop policy if exists "staff_read_revenue_snapshots" on public.revenue_snapshots;
-create policy "staff_read_revenue_snapshots" on public.revenue_snapshots for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_revenue_snapshots" on public.revenue_snapshots for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_revenue_snapshots" on public.revenue_snapshots;
 create policy "staff_write_revenue_snapshots" on public.revenue_snapshots for all
-  using (auth.jwt() ->> 'role' = 'admin') with check (auth.jwt() ->> 'role' = 'admin');
+  using (auth.jwt() ->> 'user_role' = 'admin') with check (auth.jwt() ->> 'user_role' = 'admin');
 
 drop policy if exists "staff_read_discount_codes" on public.discount_codes;
-create policy "staff_read_discount_codes" on public.discount_codes for select using (auth.jwt() ->> 'role' is not null);
+create policy "staff_read_discount_codes" on public.discount_codes for select using (auth.jwt() ->> 'user_role' is not null);
 drop policy if exists "staff_write_discount_codes" on public.discount_codes;
 create policy "staff_write_discount_codes" on public.discount_codes for all
-  using (auth.jwt() ->> 'role' = 'admin') with check (auth.jwt() ->> 'role' = 'admin');
+  using (auth.jwt() ->> 'user_role' = 'admin') with check (auth.jwt() ->> 'user_role' = 'admin');
 
 -- ----------------------------------------------------------------------------
 -- 6. Storage buckets (site-content, avatars) — unchanged from the earlier
