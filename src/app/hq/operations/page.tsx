@@ -3,7 +3,7 @@ import { requireDepartmentAccess } from "@/lib/auth/guard";
 import { getBusinesses } from "@/lib/data/businesses";
 import { getSiteSetting } from "@/lib/data/site";
 import { BusinessTable } from "@/components/operations/BusinessTable";
-import { FounderPhotoUploader } from "@/components/operations/FounderPhotoUploader";
+import { SiteImageUploader } from "@/components/operations/SiteImageUploader";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 
@@ -11,9 +11,10 @@ export default async function OperationsPage() {
   const { profile } = await requireProfile();
   requireDepartmentAccess(profile, "operations");
 
-  const [businesses, founderPhoto] = await Promise.all([
+  const [businesses, founderPhoto, siteLogo] = await Promise.all([
     getBusinesses(),
     getSiteSetting("founder_photo"),
+    getSiteSetting("site_logo"),
   ]);
 
   const canManage = ["admin", "verification_manager", "support"].includes(profile.role);
@@ -46,12 +47,29 @@ export default async function OperationsPage() {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader title="Content Management" subtitle="Founder photo and live businesses" />
-          <FounderPhotoUploader
-            initialUrl={(founderPhoto?.value?.url as string) ?? null}
-            canEdit={canEditContent}
-            role={profile.role}
-          />
+          <CardHeader title="Content Management" subtitle="Site logo, founder photo, and live businesses" />
+          <div className="space-y-5">
+            <SiteImageUploader
+              label="Site Logo"
+              description="Shown in the header and footer of the public FurFinds site."
+              settingKey="site_logo"
+              storageFolder="logo"
+              kind="logo"
+              initialUrl={(siteLogo?.value?.url as string) ?? null}
+              canEdit={canEditContent}
+              role={profile.role}
+            />
+            <SiteImageUploader
+              label="Founder Photo"
+              description="Shown on the public FurFinds site."
+              settingKey="founder_photo"
+              storageFolder="founder"
+              kind="photo"
+              initialUrl={(founderPhoto?.value?.url as string) ?? null}
+              canEdit={canEditContent}
+              role={profile.role}
+            />
+          </div>
           <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="mb-2 text-sm font-medium text-slate-700">
               Live on public site ({activeLive.length})
