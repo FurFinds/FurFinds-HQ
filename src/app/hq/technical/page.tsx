@@ -87,7 +87,7 @@ export default async function TechnicalPage() {
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Your role</dt>
             <dd className="mt-1 text-sm capitalize text-slate-700">
-              {profile.role.replace(/_/g, " ")}
+              {(profile.role ?? "unknown").replace(/_/g, " ")}
             </dd>
           </div>
         </dl>

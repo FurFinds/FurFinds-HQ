@@ -56,7 +56,7 @@ export default async function TeamPage() {
                     <td className="px-4 py-3 text-slate-600">{u.email ?? "—"}</td>
                     <td className="px-4 py-3">
                       <Badge tone={u.role === "business" ? "gold" : "info"}>
-                        {u.role.replace("_", " ")}
+                        {(u.role ?? "unknown").replace("_", " ")}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-slate-500">{formatDate(u.created_at)}</td>

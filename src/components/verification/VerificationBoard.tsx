@@ -72,7 +72,7 @@ export function VerificationBoard({
                   <StatusBadge status={b.verification_status} />
                 </div>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {b.category ?? "Uncategorized"} · Tier: {b.tier.replace("_", " ")}
+                  {b.category ?? "Uncategorized"} · Tier: {(b.tier ?? "unknown").replace("_", " ")}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">Submitted {formatDate(b.created_at)}</p>
               </button>

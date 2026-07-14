@@ -79,7 +79,7 @@ export function ApplicationDetail({
         </div>
         <div>
           <dt className="text-slate-500">Tier requested</dt>
-          <dd className="font-medium capitalize text-slate-900">{business.tier.replace("_", " ")}</dd>
+          <dd className="font-medium capitalize text-slate-900">{(business.tier ?? "unknown").replace("_", " ")}</dd>
         </div>
         <div>
           <dt className="text-slate-500">Submitted</dt>

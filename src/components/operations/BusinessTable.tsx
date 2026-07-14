@@ -113,7 +113,7 @@ export function BusinessTable({
                 </td>
                 <td className="px-4 py-3">
                   <Badge tone={business.tier === "pet_inclusive" ? "gold" : "neutral"}>
-                    {business.tier.replace("_", " ")}
+                    {(business.tier ?? "unknown").replace("_", " ")}
                   </Badge>
                 </td>
                 <td className="px-4 py-3">

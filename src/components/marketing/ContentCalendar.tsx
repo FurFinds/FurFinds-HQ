@@ -381,7 +381,7 @@ function AgendaView({
                         {e.time && <span className="text-xs text-slate-400">{e.time}</span>}
                         {e.title}
                       </span>
-                      <Badge tone={TYPE_TONE[e.type]}>{e.type.replace("_", " ")}</Badge>
+                      <Badge tone={TYPE_TONE[e.type]}>{(e.type ?? "unknown").replace("_", " ")}</Badge>
                     </button>
                   </li>
                 ))}
