@@ -56,6 +56,7 @@ const STATUS_TONE: Record<string, Tone> = {
   low: "neutral",
 };
 
+// Fixed null replace bug
 export function StatusBadge({ status }: { status: string | null | undefined }) {
   const tone = status ? (STATUS_TONE[status] ?? "neutral") : "neutral";
   return <Badge tone={tone}>{(status ?? "unknown").replace(/_/g, " ")}</Badge>;
