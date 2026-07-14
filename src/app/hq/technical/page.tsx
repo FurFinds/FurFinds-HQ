@@ -12,10 +12,16 @@ const TOOLS = [
     href: "https://claude.com/claude-code",
   },
   {
-    name: "GitHub",
-    description: "Source control, pull requests, and CI for FurFinds HQ.",
+    name: "GitHub — FurFinds HQ",
+    description: "Source control, pull requests, and CI for this repo.",
     icon: "🐙",
-    href: "https://github.com",
+    href: "https://github.com/furfinds/furfinds-hq",
+  },
+  {
+    name: "GitHub — FurFinds (website)",
+    description: "Source control, pull requests, and CI for the public site.",
+    icon: "🐙",
+    href: "https://github.com/furfinds/furfinds",
   },
   {
     name: "Supabase",
@@ -81,7 +87,7 @@ export default async function TechnicalPage() {
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Your role</dt>
             <dd className="mt-1 text-sm capitalize text-slate-700">
-              {profile.role.replace(/_/g, " ")}
+              {(profile.role ?? "unknown").replace(/_/g, " ")}
             </dd>
           </div>
         </dl>

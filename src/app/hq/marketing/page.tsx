@@ -1,14 +1,20 @@
 import { requireProfile } from "@/lib/auth/session";
 import { requireDepartmentAccess } from "@/lib/auth/guard";
-import { getContentPosts } from "@/lib/data/marketing";
+import { getContentPosts, getBlogPosts, getCalendarEvents } from "@/lib/data/marketing";
 import { ContentBoard, TemplateLibrary } from "@/components/marketing/ContentBoard";
+import { BlogBoard } from "@/components/marketing/BlogBoard";
+import { ContentCalendar } from "@/components/marketing/ContentCalendar";
 import { Card, CardHeader } from "@/components/ui/Card";
 
 export default async function MarketingPage() {
   const { profile } = await requireProfile();
   requireDepartmentAccess(profile, "marketing");
 
-  const posts = await getContentPosts();
+  const [posts, blogPosts, calendarEvents] = await Promise.all([
+    getContentPosts(),
+    getBlogPosts(),
+    getCalendarEvents(),
+  ]);
   const canManage = profile.role === "admin" || profile.role === "content_editor";
   const library = posts.filter((p) => p.status === "published");
 
@@ -22,7 +28,17 @@ export default async function MarketingPage() {
       </div>
 
       <Card>
-        <CardHeader title="Content Calendar" subtitle="Upcoming and draft posts across channels" />
+        <CardHeader title="Blog" subtitle="Draft, edit, and publish articles for the public /blog feed" />
+        <BlogBoard posts={blogPosts} canManage={canManage} />
+      </Card>
+
+      <Card>
+        <CardHeader title="Content Calendar" subtitle="Month, week, and day views — social posts, meetings, deadlines" />
+        <ContentCalendar events={calendarEvents} />
+      </Card>
+
+      <Card>
+        <CardHeader title="Scheduled Content" subtitle="Upcoming and draft posts across channels" />
         <ContentBoard posts={posts} canManage={canManage} />
       </Card>
 

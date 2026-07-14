@@ -10,7 +10,6 @@ import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { UpcomingMeetings } from "@/components/dashboard/UpcomingMeetings";
 import { AlertsFeed } from "@/components/dashboard/AlertsFeed";
 import { Card, CardHeader } from "@/components/ui/Card";
-import { formatCurrency } from "@/lib/utils";
 
 export default async function DashboardPage() {
   const { profile } = await requireProfile();
@@ -40,12 +39,15 @@ export default async function DashboardPage() {
           hint="Awaiting review"
         />
         <MetricCard
-          label="Revenue"
-          value={formatCurrency(metrics.revenueCents)}
+          label="Active Subscriptions"
+          value={metrics.activeSubscriptions.toLocaleString()}
           accent="success"
-          hint="This billing period"
         />
-        <MetricCard label="MRR" value={formatCurrency(metrics.mrrCents)} hint="Active subscriptions" />
+        <MetricCard
+          label="Canceled (30d)"
+          value={metrics.canceledSubscriptions30d.toLocaleString()}
+          hint="Subscriptions"
+        />
         <MetricCard
           label="Churn"
           value={`${metrics.churnRate.toFixed(1)}%`}

@@ -3,21 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth/session";
-import type { Business, BusinessStatus, BusinessTier } from "@/lib/types/database";
+import type { Business, BusinessCategory, BusinessTier, VerificationStatus } from "@/lib/types/database";
 
 export interface BusinessFormInput {
   name: string;
-  category: string;
+  category: BusinessCategory;
   description: string;
   tier: BusinessTier;
-  status: BusinessStatus;
+  verification_status: VerificationStatus;
+  is_active: boolean;
   city: string;
   state: string;
-  owner_name: string;
-  owner_email: string;
+  zip: string;
+  address: string;
   phone: string;
   website: string;
-  featured: boolean;
+  business_hours: string;
+  pet_policy: string;
+  service_animals_allowed: boolean;
+  esa_policy: string;
 }
 
 function assertCanManage(role: string) {
@@ -26,15 +30,27 @@ function assertCanManage(role: string) {
   }
 }
 
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 export async function createBusiness(input: BusinessFormInput) {
   const { profile } = await requireProfile();
   assertCanManage(profile.role);
 
   const supabase = createClient();
+  // The public site only shows businesses with a slug (see
+  // public_read_active_businesses + FurFinds' getAllBusinesses filter), so
+  // a business created here without one would silently never appear once
+  // marked active. Generate it now rather than relying on staff to fill in
+  // a slug field by hand.
   const { error } = await supabase.from("businesses").insert({
     ...input,
-    rating: 0,
-    review_count: 0,
+    slug: `${slugify(input.name)}-${crypto.randomUUID().slice(0, 8)}`,
   } satisfies Partial<Business>);
 
   if (error) throw new Error(error.message);
@@ -46,9 +62,13 @@ export async function updateBusiness(id: string, input: BusinessFormInput) {
   assertCanManage(profile.role);
 
   const supabase = createClient();
+
+  const { data: existing } = await supabase.from("businesses").select("slug").eq("id", id).single();
+  const slug = existing?.slug || `${slugify(input.name)}-${id.slice(0, 8)}`;
+
   const { error } = await supabase
     .from("businesses")
-    .update({ ...input, updated_at: new Date().toISOString() } satisfies Partial<Business>)
+    .update({ ...input, slug, updated_at: new Date().toISOString() } satisfies Partial<Business>)
     .eq("id", id);
 
   if (error) throw new Error(error.message);
@@ -85,14 +105,14 @@ export async function updateSiteSetting(key: string, value: Record<string, unkno
   revalidatePath("/hq/operations");
 }
 
-export async function toggleFeatured(id: string, featured: boolean) {
+export async function toggleActive(id: string, isActive: boolean) {
   const { profile } = await requireProfile();
   assertCanManage(profile.role);
 
   const supabase = createClient();
   const { error } = await supabase
     .from("businesses")
-    .update({ featured, updated_at: new Date().toISOString() })
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

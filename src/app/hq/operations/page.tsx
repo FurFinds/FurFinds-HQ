@@ -18,12 +18,12 @@ export default async function OperationsPage() {
 
   const canManage = ["admin", "verification_manager", "support"].includes(profile.role);
   const canEditContent = profile.role === "admin" || profile.role === "content_editor";
-  const featured = businesses.filter((b) => b.featured);
+  const activeLive = businesses.filter((b) => b.is_active && b.verification_status === "approved");
 
   const tierCounts = {
-    basic: businesses.filter((b) => b.tier === "basic").length,
-    verified: businesses.filter((b) => b.tier === "verified").length,
-    premium: businesses.filter((b) => b.tier === "premium").length,
+    petsAllowed: businesses.filter((b) => b.tier === "pets_allowed").length,
+    petFriendly: businesses.filter((b) => b.tier === "pet_friendly").length,
+    petInclusive: businesses.filter((b) => b.tier === "pet_inclusive").length,
   };
 
   return (
@@ -37,31 +37,32 @@ export default async function OperationsPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card>
-          <CardHeader title="Tier Management" subtitle="Businesses by subscription tier" />
+          <CardHeader title="Tier Management" subtitle="Businesses by verification tier" />
           <div className="space-y-3">
-            <TierRow label="Basic" count={tierCounts.basic} tone="neutral" />
-            <TierRow label="Verified" count={tierCounts.verified} tone="info" />
-            <TierRow label="Premium" count={tierCounts.premium} tone="gold" />
+            <TierRow label="Pets Allowed" count={tierCounts.petsAllowed} tone="neutral" />
+            <TierRow label="Pet-Friendly" count={tierCounts.petFriendly} tone="info" />
+            <TierRow label="Pet-Inclusive" count={tierCounts.petInclusive} tone="gold" />
           </div>
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader title="Content Management" subtitle="Founder photo and featured businesses" />
+          <CardHeader title="Content Management" subtitle="Founder photo and live businesses" />
           <FounderPhotoUploader
             initialUrl={(founderPhoto?.value?.url as string) ?? null}
             canEdit={canEditContent}
+            role={profile.role}
           />
           <div className="mt-5 border-t border-slate-100 pt-4">
             <p className="mb-2 text-sm font-medium text-slate-700">
-              Featured businesses ({featured.length})
+              Live on public site ({activeLive.length})
             </p>
-            {featured.length === 0 ? (
+            {activeLive.length === 0 ? (
               <p className="text-sm text-slate-400">
-                No businesses are featured yet — feature one from the table below.
+                No businesses are live yet — approve one from the Verification queue or activate it below.
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {featured.map((b) => (
+                {activeLive.map((b) => (
                   <span
                     key={b.id}
                     className="rounded-full bg-ff-pale-blue px-3 py-1 text-xs font-medium text-ff-dark-blue"

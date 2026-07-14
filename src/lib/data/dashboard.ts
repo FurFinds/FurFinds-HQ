@@ -4,8 +4,8 @@ export interface DashboardMetrics {
   totalBusinesses: number;
   totalUsers: number;
   verificationPending: number;
-  revenueCents: number;
-  mrrCents: number;
+  activeSubscriptions: number;
+  canceledSubscriptions30d: number;
   churnRate: number;
 }
 
@@ -16,37 +16,33 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
     { count: totalBusinesses },
     { count: totalUsers },
     { count: verificationPending },
-    { data: activeSubs },
-    { data: pastDueSubs },
-    { count: recentChurnCount },
+    { count: activeSubscriptions },
+    { count: canceledSubscriptions30d },
   ] = await Promise.all([
     supabase.from("businesses").select("*", { count: "exact", head: true }),
-    supabase.from("customers").select("*", { count: "exact", head: true }),
+    supabase.from("users").select("*", { count: "exact", head: true }),
     supabase
-      .from("verification_applications")
+      .from("businesses")
       .select("*", { count: "exact", head: true })
-      .eq("status", "pending"),
-    supabase.from("subscriptions").select("mrr_cents").eq("status", "active"),
-    supabase.from("subscriptions").select("mrr_cents").eq("status", "past_due"),
+      .in("verification_status", ["pending", "in_progress"]),
+    supabase.from("subscriptions").select("*", { count: "exact", head: true }).eq("status", "active"),
     supabase
       .from("subscriptions")
-      .select("id", { count: "exact", head: true })
+      .select("*", { count: "exact", head: true })
       .eq("status", "canceled")
-      .gte("canceled_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+      .gte("end_date", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
   ]);
 
-  const mrrCents = (activeSubs ?? []).reduce((sum, s) => sum + (s.mrr_cents ?? 0), 0);
-  const pastDueCents = (pastDueSubs ?? []).reduce((sum, s) => sum + (s.mrr_cents ?? 0), 0);
-  const activeCount = (activeSubs ?? []).length;
-  const churned = recentChurnCount ?? 0;
-  const churnRate = activeCount + churned > 0 ? (churned / (activeCount + churned)) * 100 : 0;
+  const active = activeSubscriptions ?? 0;
+  const churned = canceledSubscriptions30d ?? 0;
+  const churnRate = active + churned > 0 ? (churned / (active + churned)) * 100 : 0;
 
   return {
     totalBusinesses: totalBusinesses ?? 0,
     totalUsers: totalUsers ?? 0,
     verificationPending: verificationPending ?? 0,
-    revenueCents: mrrCents + pastDueCents,
-    mrrCents,
+    activeSubscriptions: active,
+    canceledSubscriptions30d: churned,
     churnRate,
   };
 }

@@ -40,6 +40,12 @@ export async function POST(request: Request) {
       email_confirm: true,
       user_metadata: {
         full_name: typeof fullName === "string" ? fullName : null,
+      },
+      // app_metadata (not user_metadata) carries the role, since only this
+      // service-role admin call can set it — the DB trigger that
+      // provisions the profiles row trusts app_metadata specifically so a
+      // client can't grant itself a role via a plain signUp() call.
+      app_metadata: {
         role: resolvedRole,
       },
     });

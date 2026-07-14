@@ -14,6 +14,9 @@ function initialErrorFromUrl(searchParams: URLSearchParams): string | null {
     const detail = searchParams.get("detail");
     return `Signed in, but couldn't set up your HQ profile${detail ? `: ${detail}` : "."} Check that supabase/schema.sql (including RLS policies) has been run against your Supabase project.`;
   }
+  if (errorCode === "no_hq_access") {
+    return "This account doesn't have HQ access yet. Ask an admin to grant you a role from Team & Users, or sign up with a valid access code.";
+  }
   return null;
 }
 
